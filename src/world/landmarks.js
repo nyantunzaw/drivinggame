@@ -2,7 +2,9 @@
 // Karaweik and the Independence Monument, plus golden stupas for small shrines.
 import * as THREE from 'three';
 import { HILL, heightAt } from '../terrain.js';
-import { templateFrom, mergeTemplates, xform } from './geo.js';
+import { templateFrom, mergeTemplates, xform, Geo } from './geo.js';
+import { wallQuad } from './chunks.js';
+import { STYLE } from '../facades.js';
 
 const V = (r, y) => new THREE.Vector2(r, y);
 
@@ -35,11 +37,11 @@ function flat(geo) {
 }
 
 // Tiered Burmese roof (pyatthat) as a template.
-function pyatthat(tiers, base, tierH, colRoof = 0x9a2a1f, colTrim = 0xd8a63a) {
+function pyatthat(tiers, base, tierH, colRoof = 0x9a2a1f, colTrim = 0xd8a63a, colRoof2 = 0xa83a25) {
   const parts = [];
   let y = 0, r = base;
   for (let i = 0; i < tiers; i++) {
-    const roof = templateFrom(flat(new THREE.ConeGeometry(r, tierH, 4, 1, false, Math.PI / 4)), i % 2 ? colRoof : 0xa83a25);
+    const roof = templateFrom(flat(new THREE.ConeGeometry(r, tierH, 4, 1, false, Math.PI / 4)), i % 2 ? colRoof : colRoof2);
     xform(roof, { y: y + tierH / 2 });
     const trim = templateFrom(flat(new THREE.BoxGeometry(r * 1.05, 0.25, r * 1.05)), colTrim);
     xform(trim, { y: y + 0.1 });
@@ -89,6 +91,311 @@ const WIZAYA = [[0, 0], [16, 0], [16, 3], [13, 3], [13, 6], [12.5, 7], [12, 10],
   [6.3, 26], [5, 27], [5.2, 28], [4, 29.5], [3.4, 31], [3.6, 32], [2.8, 33], [3, 34], [2.2, 35.5], [1.6, 38], [1, 41], [0.5, 43], [0, 44]];
 export const SMALL_STUPA = [[0, 0], [1, 0], [1, 0.25], [0.85, 0.25], [0.85, 0.45], [0.8, 0.6], [0.72, 0.95], [0.58, 1.3],
   [0.42, 1.6], [0.45, 1.68], [0.35, 1.78], [0.3, 1.95], [0.33, 2.05], [0.24, 2.2], [0.18, 2.5], [0.12, 2.8], [0.06, 3.05], [0, 3.2]];
+
+
+// ---------------------------------------------------------------- helpers for
+// Chinese temples and colonial heritage details
+
+// Raw triangles -> template (flat shaded, optionally double sided).
+function triTemplate(tris, color, double = false) {
+  const pos = [];
+  for (const t of tris) {
+    pos.push(...t[0], ...t[1], ...t[2]);
+    if (double) pos.push(...t[0], ...t[2], ...t[1]);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return templateFrom(g, color);
+}
+
+// Chinese hip-and-gable roof with upswept eave corners and ridge ornaments.
+function chineseRoof(w, d, h, tile = 0x2e7d4f, ridgeCol = 0xd9a63a) {
+  const oh = 1.2;                 // eave overhang
+  const W = w / 2 + oh, D = d / 2 + oh, rw = w * 0.32;
+  const up = 0.55;                // corner sweep
+  const e = [[-W, up, D], [W, up, D], [W, up, -D], [-W, up, -D]];
+  const mid = [[-W * 0.55, 0, D], [W * 0.55, 0, D], [W * 0.55, 0, -D], [-W * 0.55, 0, -D]];
+  const r0 = [-rw, h, 0], r1 = [rw, h, 0];
+  const tris = [
+    // front slope (with sagging middle of the eave)
+    [e[0], mid[0], r0], [mid[0], mid[1], r0], [mid[1], r1, r0], [mid[1], e[1], r1],
+    // back slope
+    [e[3], r0, mid[3]], [mid[3], r0, mid[2]], [mid[2], r0, r1], [mid[2], r1, e[2]],
+    // hips
+    [e[0], r0, e[3]], [e[1], e[2], r1],
+  ];
+  const parts = [triTemplate(tris, tile, true)];
+  const ridge = templateFrom(new THREE.BoxGeometry(rw * 2 + 0.6, 0.45, 0.45), ridgeCol);
+  xform(ridge, { y: h + 0.2 });
+  parts.push(ridge);
+  // stylised dragons along the ridge facing a flaming pearl
+  for (const sgn of [-1, 1]) {
+    for (let k = 0; k < 7; k++) {
+      const t = k / 6;
+      const seg = templateFrom(new THREE.BoxGeometry(0.42, 0.32, 0.32), k % 2 ? 0x3aa36a : 0xe0b040);
+      xform(seg, { x: sgn * (rw * 0.25 + t * rw * 0.7), y: h + 0.55 + Math.sin(t * Math.PI * 2) * 0.35, rz: Math.cos(t * Math.PI * 2) * 0.6 * sgn });
+      parts.push(seg);
+    }
+    const curl = templateFrom(new THREE.BoxGeometry(0.4, 1.1, 0.4), ridgeCol);
+    xform(curl, { x: sgn * (rw + 0.1), y: h + 0.6, rz: -sgn * 0.35 });
+    parts.push(curl);
+  }
+  const pearl = templateFrom(new THREE.IcosahedronGeometry(0.42, 1), 0xd23a2a);
+  xform(pearl, { y: h + 0.95 });
+  parts.push(pearl);
+  // upswept corner tips
+  for (const c of e) {
+    const tip = templateFrom(new THREE.ConeGeometry(0.22, 1.1, 5), ridgeCol);
+    xform(tip, { x: c[0] * 1.02, y: c[1] + 0.35, z: c[2] * 1.02, rx: c[2] > 0 ? 0.6 : -0.6, rz: c[0] > 0 ? -0.6 : 0.6 });
+    parts.push(tip);
+  }
+  return mergeTemplates(parts);
+}
+
+function plaqueMaterial(text, sub) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 160;
+  const a = c.getContext('2d');
+  a.fillStyle = '#16120f'; a.fillRect(0, 0, 512, 160);
+  a.strokeStyle = '#d9a63a'; a.lineWidth = 10; a.strokeRect(8, 8, 496, 144);
+  a.fillStyle = '#f2c94c'; a.textAlign = 'center'; a.textBaseline = 'middle';
+  a.font = "700 84px 'Noto Serif SC','Noto Sans SC','PingFang SC','Microsoft YaHei','WenQuanYi Zen Hei',serif";
+  a.fillText(text, 256, 72);
+  a.font = "600 22px 'Rajdhani',Arial,sans-serif";
+  a.fillText(sub, 256, 134);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshLambertMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.25 });
+}
+
+// Pick the side of a footprint rectangle that faces the most important nearby road.
+function frontOf(rect, collision) {
+  const ca = Math.cos(rect.ang), sa = Math.sin(rect.ang);
+  const axes = [[ca, sa, rect.len / 2, rect.wid], [-ca, -sa, rect.len / 2, rect.wid], [-sa, ca, rect.wid / 2, rect.len], [sa, -ca, rect.wid / 2, rect.len]];
+  let best = axes[2], bc = 99;
+  for (const ax of axes) {
+    for (const d of [4, 9, 14]) {
+      const c = collision.roadAt(rect.x + ax[0] * (ax[2] + d), rect.z + ax[1] * (ax[2] + d));
+      if (c && c < bc) { bc = c; best = ax; }
+    }
+  }
+  // returns front direction, width (across the front) and depth
+  return { fx: best[0], fz: best[1], width: best[3], depth: best[2] * 2 };
+}
+
+function chineseTemple(group, rect, mats, collision, name, sub, scale = 1) {
+  const f = frontOf(rect, collision);
+  const g = new THREE.Group();
+  g.position.set(rect.x, heightAt(rect.x, rect.z), rect.z);
+  g.rotation.y = Math.atan2(f.fx, f.fz);   // local +z faces the street
+  const W = f.width * 0.92, D = f.depth * 0.92;
+  const parts = [];
+  const RED = 0xa8231c, STONE = 0xb9b4a8, GOLD = 0xd9a63a;
+  const base = templateFrom(new THREE.BoxGeometry(W, 0.6, D), STONE);
+  xform(base, { y: 0.3 });
+  parts.push(base);
+  // front gate hall
+  const gd = Math.min(7, D * 0.25), gz = D / 2 - gd / 2;
+  const gate = templateFrom(new THREE.BoxGeometry(W * 0.86, 5.2, gd), RED);
+  xform(gate, { y: 0.6 + 2.6, z: gz - 0.6 });
+  parts.push(gate);
+  parts.push(xform(chineseRoof(W * 0.86, gd, 2.6 * scale, 0x2e7d4f), { y: 5.8, z: gz - 0.6 }));
+  const door = templateFrom(new THREE.BoxGeometry(3.2, 3.6, 0.2), 0x5a1410);
+  xform(door, { y: 0.6 + 1.8, z: gz - 0.6 + gd / 2 + 0.05 });
+  parts.push(door);
+  for (const sx of [-1, 1]) {
+    for (const px of [0.18, 0.4]) {
+      const col = templateFrom(new THREE.CylinderGeometry(0.28, 0.32, 5.2, 10), RED);
+      xform(col, { x: sx * W * px, y: 0.6 + 2.6, z: gz - 0.6 + gd / 2 + 0.6 });
+      parts.push(col);
+    }
+    // guardian lions
+    const lion = templateFrom(new THREE.BoxGeometry(0.9, 1.1, 1.3), 0x9d9a92);
+    xform(lion, { x: sx * 2.6, y: 0.6 + 0.55, z: D / 2 + 0.2 });
+    const head = templateFrom(new THREE.IcosahedronGeometry(0.5, 0), 0x9d9a92);
+    xform(head, { x: sx * 2.6, y: 0.6 + 1.45, z: D / 2 + 0.45 });
+    parts.push(lion, head);
+  }
+  // main hall (two-tier roof)
+  const hd = D * 0.45, hz = -D / 2 + hd / 2 + 1;
+  const hall = templateFrom(new THREE.BoxGeometry(W * 0.8, 7, hd), RED);
+  xform(hall, { y: 0.6 + 3.5, z: hz });
+  parts.push(hall);
+  parts.push(xform(chineseRoof(W * 0.8, hd, 3.4 * scale, 0x2e7d4f), { y: 7.6, z: hz }));
+  const upper = templateFrom(new THREE.BoxGeometry(W * 0.4, 2.6, hd * 0.5), RED);
+  xform(upper, { y: 10.6, z: hz });
+  parts.push(upper);
+  parts.push(xform(chineseRoof(W * 0.4, hd * 0.5, 2.2 * scale, 0xd9a03a), { y: 11.9, z: hz }));
+  for (let k = -3; k <= 3; k++) {
+    const col = templateFrom(new THREE.CylinderGeometry(0.3, 0.34, 7, 10), RED);
+    xform(col, { x: (k / 3) * W * 0.38, y: 0.6 + 3.5, z: hz + hd / 2 + 0.7 });
+    parts.push(col);
+  }
+  // courtyard: bronze incense cauldron
+  const pot = templateFrom(new THREE.CylinderGeometry(0.9, 0.7, 1.2, 12), 0x5b4a2e);
+  xform(pot, { y: 0.6 + 1.1, z: (gz - gd / 2 + hz + hd / 2) / 2 });
+  parts.push(pot);
+  const mesh = vcMesh(parts, mats.landmarkVC);
+  g.add(mesh);
+  // glowing red lanterns under the eaves
+  const lanterns = [];
+  for (const [lx, lz, ly] of [[-W * 0.3, gz + gd / 2 + 0.2, 4.6], [W * 0.3, gz + gd / 2 + 0.2, 4.6], [-W * 0.2, hz + hd / 2 + 0.9, 6.4], [W * 0.2, hz + hd / 2 + 0.9, 6.4], [0, hz + hd / 2 + 0.9, 6.4]]) {
+    const lt = templateFrom(new THREE.CylinderGeometry(0.45, 0.45, 0.7, 10), 0xe0291c, 1);
+    xform(lt, { x: lx, y: ly, z: lz });
+    lanterns.push(lt);
+  }
+  const lg = mergeTemplates(lanterns);
+  const lgeo = new THREE.BufferGeometry();
+  lgeo.setAttribute('position', new THREE.Float32BufferAttribute(lg.p, 3));
+  lgeo.setAttribute('normal', new THREE.Float32BufferAttribute(lg.n, 3));
+  lgeo.setAttribute('color', new THREE.Float32BufferAttribute(lg.c, 3));
+  lgeo.setAttribute('glow', new THREE.Float32BufferAttribute(lg.g, 1));
+  lgeo.setIndex(lg.idx);
+  g.add(new THREE.Mesh(lgeo, mats.props));
+  // name plaque over the gate
+  const plaque = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.12), plaqueMaterial(name, sub));
+  plaque.position.set(0, 4.8, gz - 0.6 + gd / 2 + 0.12);
+  g.add(plaque);
+  group.add(g);
+  // colliders: gate, hall, base
+  const ang = -Math.atan2(f.fx, f.fz);
+  const toW = (lx, lz) => [rect.x + lx * Math.cos(-ang) + lz * Math.sin(-ang), rect.z - lx * Math.sin(-ang) + lz * Math.cos(-ang)];
+  for (const [lz, dd] of [[gz - 0.6, gd], [hz, hd]]) {
+    const [x, z] = toW(0, lz);
+    collision.addBox(x, z, W * 0.45, dd / 2 + 0.3, ang - Math.PI / 2 * 0);
+  }
+}
+
+// Burmese tiered roof (pyatthat) in heritage colours placed on a building roof.
+function addPyatthat(group, mats, x, y, z, tiers, base, tierH, roof, trim) {
+  const t = pyatthat(tiers, base, tierH, roof, trim, roof);
+  const m = vcMesh([t], mats.landmarkVC);
+  m.position.set(x, y, z);
+  group.add(m);
+}
+
+function heritage(group, map, mats, collision) {
+  const L = map.landmarks;
+  const local = (rect, lx, lz) => {
+    const ca = Math.cos(rect.ang), sa = Math.sin(rect.ang);
+    return [rect.x + ca * lx - sa * lz, rect.z + sa * lx + ca * lz];
+  };
+  const roofY = (x, z, fallback) => {
+    // height of the building under (x,z) from the map data
+    let best = fallback;
+    for (let i = 0; i < map.buildingCount; i++) {
+      if (Math.abs(map.bCx[i] - x) > 80 || Math.abs(map.bCz[i] - z) > 80) continue;
+      if (map.bType[i] >= 7) best = Math.max(best === fallback ? 0 : best, map.bHeight[i]);
+    }
+    return best;
+  };
+  // City Hall: Burmese tiered towers in jade green over the front and corners
+  if (L.cityhall && L.cityhall.rect) {
+    const r = L.cityhall.rect;
+    const f = frontOf(r, collision);
+    const y = roofY(r.x, r.z, 22);
+    const cxp = r.x + f.fx * (f.depth / 2 - 8), czp = r.z + f.fz * (f.depth / 2 - 8);
+    addPyatthat(group, mats, cxp, y, czp, 5, 12, 3.2, 0x3f7f6f, 0xd9a63a);
+    const sx = -f.fz, sz = f.fx;
+    for (const s of [-1, 1]) addPyatthat(group, mats, cxp + sx * s * (f.width / 2 - 7), y, czp + sz * s * (f.width / 2 - 7), 3, 7, 2.4, 0x3f7f6f, 0xd9a63a);
+  }
+  // Central Station: a row of multi-tiered roofs
+  if (L.station && L.station.rect) {
+    const r = L.station.rect;
+    const y = roofY(r.x, r.z, 18);
+    for (const t of [-0.32, 0, 0.32]) {
+      const [x, z] = local(r, t * r.len, 0);
+      addPyatthat(group, mats, x, y, z, t === 0 ? 5 : 4, t === 0 ? 16 : 11, 3, 0x8a2f24, 0xd9a63a);
+    }
+  }
+  // High Court: red-brick clock tower
+  if (L.highcourt && L.highcourt.rect) {
+    const r = L.highcourt.rect;
+    const f = frontOf(r, collision);
+    const x = r.x + f.fx * (f.depth / 2 - 5), z = r.z + f.fz * (f.depth / 2 - 5);
+    const parts = [];
+    const shaft = templateFrom(new THREE.BoxGeometry(8, 44, 8), 0x9c4632);
+    xform(shaft, { y: 22 });
+    parts.push(shaft);
+    for (const y of [14, 27, 40]) { const band = templateFrom(new THREE.BoxGeometry(8.6, 0.8, 8.6), 0xefe6d2); xform(band, { y }); parts.push(band); }
+    for (let k = 0; k < 4; k++) {
+      const a = (k / 4) * Math.PI * 2;
+      const face = templateFrom(new THREE.CylinderGeometry(2.3, 2.3, 0.3, 20), 0xf4efe4);
+      xform(face, { x: Math.sin(a) * 4.1, y: 36, z: Math.cos(a) * 4.1, rx: Math.PI / 2, ry: a });
+      const hand = templateFrom(new THREE.BoxGeometry(0.25, 1.9, 0.2), 0x1a1a1a);
+      xform(hand, { x: Math.sin(a) * 4.3, y: 36.7, z: Math.cos(a) * 4.3, ry: a });
+      parts.push(face, hand);
+    }
+    const dome = templateFrom(new THREE.SphereGeometry(4.4, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0x6f8f86);
+    xform(dome, { y: 44 });
+    const spire = templateFrom(new THREE.ConeGeometry(0.5, 4, 8), 0xd9a63a);
+    xform(spire, { y: 50 });
+    parts.push(dome, spire);
+    const m = vcMesh(parts, mats.landmarkVC);
+    m.position.set(x, 0, z);
+    m.rotation.y = Math.atan2(f.fx, f.fz);
+    group.add(m);
+    collision.addCircle(x, z, 5.5);
+  }
+  // The Secretariat: four red-brick wings around a courtyard, domed corner towers
+  if (L.secretariat && L.secretariat.rect) {
+    const r = L.secretariat.rect;
+    const G = new Geo();
+    const wingD = 20, h = 17;
+    const hl = r.len / 2, hw = r.wid / 2;
+    const wings = [
+      [-hl, -hw, hl, -hw + wingD], [-hl, hw - wingD, hl, hw],
+      [-hl, -hw + wingD, -hl + wingD, hw - wingD], [hl - wingD, -hw + wingD, hl, hw - wingD],
+    ];
+    const brick = [0.96, 0.94, 0.92];
+    for (const [x0, z0, x1, z1] of wings) {
+      // ring in local coords, negative signed area (see data.js)
+      const loc = [[x0, z0], [x0, z1], [x1, z1], [x1, z0]].map(([lx, lz]) => local(r, lx, lz));
+      const ring = loc.flat();
+      let area = 0;
+      for (let i = 0, j = 3; i < 4; j = i++) area += ring[j * 2] * ring[i * 2 + 1] - ring[i * 2] * ring[j * 2 + 1];
+      if (area > 0) { loc.reverse(); }
+      const rr = loc.flat();
+      let per = 0;
+      for (let k = 0; k < 4; k++) {
+        const j = (k + 1) % 4;
+        const ax = rr[k * 2], az = rr[k * 2 + 1], bx = rr[j * 2], bz = rr[j * 2 + 1];
+        const Lk = Math.hypot(bx - ax, bz - az);
+        const nx = -(bz - az) / Lk, nz = (bx - ax) / Lk;
+        const su = STYLE.brick * 1000;
+        wallQuad(G, ax, az, bx, bz, -0.3, 3.3, nx, nz, su + per / 14.4, su + (per + Lk) / 14.4, -0.09, 1, brick, 0.72, 0.95);
+        wallQuad(G, ax, az, bx, bz, 3.3, h, nx, nz, su + per / 14.4, su + (per + Lk) / 14.4, 1, h / 3.3, brick, 0.95, 1);
+        wallQuad(G, ax, az, bx, bz, h, h + 1.2, nx, nz, 0, 0, -1, -1, [0.94, 0.9, 0.82], 0.9, 0.95);
+        per += Lk;
+      }
+      const base = G.count;
+      for (let k = 0; k < 4; k++) G.v(rr[k * 2], h, rr[k * 2 + 1], 0, 1, 0, 0, -1, 0.42, 0.25, 0.2);
+      for (const t of [[0, 1, 2], [0, 2, 3]]) {
+        const a = t[0], b = t[1], c = t[2];
+        const cr = (rr[b * 2 + 1] - rr[a * 2 + 1]) * (rr[c * 2] - rr[a * 2]) - (rr[b * 2] - rr[a * 2]) * (rr[c * 2 + 1] - rr[a * 2 + 1]);
+        if (cr >= 0) G.tri(base + a, base + b, base + c); else G.tri(base + a, base + c, base + b);
+      }
+      const [cx, cz] = local(r, (x0 + x1) / 2, (z0 + z1) / 2);
+      collision.addBox(cx, cz, Math.abs(x1 - x0) / 2, Math.abs(z1 - z0) / 2, r.ang);
+    }
+    group.add(new THREE.Mesh(G.build(), mats.building));
+    for (const [lx, lz] of [[-hl + 6, -hw + 6], [hl - 6, -hw + 6], [-hl + 6, hw - 6], [hl - 6, hw - 6]]) {
+      const [x, z] = local(r, lx, lz);
+      const parts = [];
+      const drum = templateFrom(new THREE.CylinderGeometry(4.2, 4.2, 4, 12), 0x9c4632);
+      xform(drum, { y: h + 2 });
+      const dome = templateFrom(new THREE.SphereGeometry(4.4, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), 0x7f8f88);
+      xform(dome, { y: h + 4 });
+      const fin = templateFrom(new THREE.ConeGeometry(0.4, 3, 8), 0xd9a63a);
+      xform(fin, { y: h + 9.5 });
+      parts.push(drum, dome, fin);
+      const m = vcMesh(parts, mats.landmarkVC);
+      m.position.set(x, 0, z);
+      group.add(m);
+    }
+  }
+}
 
 export function buildLandmarks(scene, map, mats, collision, chunks) {
   const group = new THREE.Group();
@@ -253,6 +560,11 @@ export function buildLandmarks(scene, map, mats, collision, chunks) {
     group.add(g);
     collision.addBox(k.x, k.z, 34, 12, -heading);
   }
+
+  // ---------------------------------------------------------- Chinatown temples & heritage
+  if (L.khenghockkeong && L.khenghockkeong.rect) chineseTemple(group, L.khenghockkeong.rect, mats, collision, '慶福宮', 'KHENG HOCK KEONG', 1.15);
+  if (L.guanyin && L.guanyin.rect) chineseTemple(group, L.guanyin.rect, mats, collision, '觀音古廟', 'KWAN YIN TEMPLE', 1);
+  heritage(group, map, mats, collision);
 
   // ---------------------------------------------------------- small golden stupas
   {

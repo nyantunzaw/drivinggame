@@ -3,9 +3,9 @@
 export const CHUNK = 250;              // world chunk size (m)
 
 export const QUALITY = {
-  low:    { view: 340, pixelRatio: 1.0, traffic: 12, peds: 14, trees: 0.5, shadows: false, clouds: false, antialias: false },
-  medium: { view: 520, pixelRatio: 1.5, traffic: 20, peds: 22, trees: 0.8, shadows: false, clouds: true, antialias: false },
-  high:   { view: 760, pixelRatio: 2.0, traffic: 28, peds: 30, trees: 1.0, shadows: true, clouds: true, antialias: true },
+  low:    { view: 340, pixelRatio: 1.0, traffic: 12, peds: 14, parked: 10, trees: 0.5, shadows: false, clouds: false, antialias: false, detail: false },
+  medium: { view: 520, pixelRatio: 1.5, traffic: 20, peds: 22, parked: 18, trees: 0.8, shadows: false, clouds: true, antialias: false, detail: true },
+  high:   { view: 760, pixelRatio: 2.0, traffic: 28, peds: 30, parked: 26, trees: 1.0, shadows: true, clouds: true, antialias: true, detail: true },
 };
 
 // Road classes: 0 trunk, 1 primary, 2 secondary, 3 tertiary, 4 residential, 5 service, 6 footway

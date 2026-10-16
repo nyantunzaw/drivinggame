@@ -52,13 +52,25 @@ export function buildStatic(scene, map, mats, quality) {
   const { x0, z0, x1, z1 } = map.bounds;
 
   // Big flat ground (extends past the map so the horizon is never empty).
+  // Tessellated: GPUs interpolate depth badly across a couple of kilometre-sized
+  // triangles, which let the ground poke through the roads at high resolutions.
   const pad = 4000;
   const G = new Geo({ color: false });
-  const a = G.v(x0 - pad, 0, z0 - pad, 0, 1, 0, (x0 - pad) / 20, (z0 - pad) / 20);
-  G.v(x1 + pad, 0, z0 - pad, 0, 1, 0, (x1 + pad) / 20, (z0 - pad) / 20);
-  G.v(x1 + pad, 0, z1 + pad, 0, 1, 0, (x1 + pad) / 20, (z1 + pad) / 20);
-  G.v(x0 - pad, 0, z1 + pad, 0, 1, 0, (x0 - pad) / 20, (z1 + pad) / 20);
-  G.tri(a, a + 2, a + 1); G.tri(a, a + 3, a + 2);
+  const gx0 = x0 - pad, gz0 = z0 - pad;
+  const tnx = Math.ceil((x1 + pad - gx0) / 300), tnz = Math.ceil((z1 + pad - gz0) / 300);
+  const tsx = (x1 + pad - gx0) / tnx, tsz = (z1 + pad - gz0) / tnz;
+  for (let j = 0; j <= tnz; j++) {
+    for (let i = 0; i <= tnx; i++) {
+      const x = gx0 + i * tsx, z = gz0 + j * tsz;
+      G.v(x, 0, z, 0, 1, 0, x / 20, z / 20);
+    }
+  }
+  for (let j = 0; j < tnz; j++) {
+    for (let i = 0; i < tnx; i++) {
+      const a = j * (tnx + 1) + i, b = a + 1, c = a + tnx + 1, d = c + 1;
+      G.tri(a, c, b); G.tri(b, c, d);
+    }
+  }
   const ground = new THREE.Mesh(G.build(), mats.ground);
   ground.receiveShadow = quality.shadows;
   group.add(ground);

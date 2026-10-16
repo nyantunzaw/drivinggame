@@ -33,7 +33,7 @@ export class AIDriver {
 
   laneOffset(e) {
     if (e.oneway) return this.laneJitter * ROAD_HALF[e.cls] * 0.4;
-    return ROAD_HALF[e.cls] * 0.48 + this.laneJitter * 0.4;
+    return ROAD_HALF[e.cls] * (e.cls >= 3 ? 0.42 : 0.48) + this.laneJitter * 0.4;
   }
 
   nodeAhead(step) { return step.dir > 0 ? step.e.b : step.e.a; }
@@ -124,6 +124,7 @@ export class AIDriver {
     if (this.mode === 'flee') vTarget *= 1.5;
     if (this.mode === 'race') vTarget = Math.max(vTarget * 1.7, 30) * this.speedFactor;
     if (this.hold) vTarget = 0;
+    vTarget = Math.min(vTarget, v.def.top * 0.9);
 
     // corner speed: look at the heading change ~20-35 m ahead
     const near = Math.max(6, 4 + Math.abs(vf) * 0.55);
@@ -169,7 +170,7 @@ export class AIDriver {
       if (dx * dx + dz * dz > 1600) continue;
       const df = dx * fx + dz * fz, dl = dx * lx + dz * lz;
       if (df <= 0) continue;
-      if (Math.abs(dl) < halfW + o.def.wid / 2 + 0.4) {
+      if (Math.abs(dl) < halfW + o.def.wid / 2 + (o.parked ? 0.05 : 0.4)) {
         const g = df - (v.def.len + o.def.len) / 2;
         if (g < gap) { gap = g; }
       }

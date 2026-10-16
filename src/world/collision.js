@@ -11,7 +11,8 @@ export class CollisionWorld {
     this.x0 = x0 - 64; this.z0 = z0 - 64;
     this.nx = Math.ceil((x1 - x0 + 128) / CELL);
     this.nz = Math.ceil((z1 - z0 + 128) / CELL);
-    this.circles = [];      // {x,z,r}
+    this.circles = [];      // {x,z,r} (all, for debugging)
+    this.circleGrid = new Map(); // cell -> circles (street furniture, landmarks)
     this.boxes = [];        // oriented boxes {x,z,hx,hz,c,s}
     this._buildEdges();
     this._buildWater();
@@ -146,6 +147,41 @@ export class CollisionWorld {
       }
     }
     this.water = mask;
+
+    // Road mask (smallest road class + 1 per 4 m cell): used to find street-facing walls.
+    const road = new Uint8Array(this.wnx * this.wnz);
+    const HW = [7.5, 7, 5.5, 4.5, 3.5, 2.2];
+    for (const e of this.map.edges) {
+      if (e.cls > 5) continue;
+      const hw = HW[e.cls] + 1;
+      const rr = Math.ceil(hw / WCELL);
+      const p = e.pts;
+      for (let i = 0; i + 2 < p.length; i += 2) {
+        const ax = p[i], az = p[i + 1], bx = p[i + 2], bz = p[i + 3];
+        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 3));
+        for (let s = 0; s <= steps; s++) {
+          const x = ax + ((bx - ax) * s) / steps, z = az + ((bz - az) * s) / steps;
+          const cx = Math.floor((x - x0) / WCELL), cz = Math.floor((z - z0) / WCELL);
+          for (let dz = -rr; dz <= rr; dz++) {
+            for (let dx = -rr; dx <= rr; dx++) {
+              const qx = cx + dx, qz = cz + dz;
+              if (qx < 0 || qz < 0 || qx >= this.wnx || qz >= this.wnz) continue;
+              if ((dx * dx + dz * dz) * WCELL * WCELL > hw * hw + 8) continue;
+              const k = qz * this.wnx + qx;
+              if (!road[k] || road[k] > e.cls + 1) road[k] = e.cls + 1;
+            }
+          }
+        }
+      }
+    }
+    this.road = road;
+  }
+
+  // 0 = no road, otherwise road class + 1 (1 = trunk ... 6 = service)
+  roadAt(x, z) {
+    const cx = Math.floor((x - this.wx0) / WCELL), cz = Math.floor((z - this.wz0) / WCELL);
+    if (cx < 0 || cz < 0 || cx >= this.wnx || cz >= this.wnz) return 0;
+    return this.road[cz * this.wnx + cx];
   }
 
   isWater(x, z) {
@@ -155,7 +191,19 @@ export class CollisionWorld {
   }
 
   addCircle(x, z, r) {
-    this.circles.push({ x, z, r });
+    const c = { x, z, r, s: 0 };
+    this.circles.push(c);
+    const cx0 = Math.floor((x - r - this.x0) / CELL), cx1 = Math.floor((x + r - this.x0) / CELL);
+    const cz0 = Math.floor((z - r - this.z0) / CELL), cz1 = Math.floor((z + r - this.z0) / CELL);
+    for (let cz = cz0; cz <= cz1; cz++) {
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const k = cz * this.nx + cx;
+        let list = this.circleGrid.get(k);
+        if (!list) { list = []; this.circleGrid.set(k, list); }
+        list.push(c);
+      }
+    }
+    return c;
   }
 
   // Oriented box collider (angle in radians around Y).
@@ -220,15 +268,23 @@ export class CollisionWorld {
         }
       }
     }
-    for (const ci of this.circles) {
-      const dx = x - ci.x, dz = z - ci.z;
-      const rr = ci.r + r;
-      const d2 = dx * dx + dz * dz;
-      if (d2 < rr * rr) {
-        const d = Math.sqrt(d2) || 1e-4;
-        const nx = dx / d, nz = dz / d;
-        x = ci.x + nx * rr; z = ci.z + nz * rr;
-        out.nx += nx; out.nz += nz; out.depth = Math.max(out.depth, rr - d); out.hit = true;
+    for (let cz = cz0; cz <= cz1; cz++) {
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const list = this.circleGrid.get(cz * this.nx + cx);
+        if (!list) continue;
+        for (const ci of list) {
+          if (ci.s === stamp) continue;
+          ci.s = stamp;
+          const dx = x - ci.x, dz = z - ci.z;
+          const rr = ci.r + r;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < rr * rr) {
+            const d = Math.sqrt(d2) || 1e-4;
+            const nx = dx / d, nz = dz / d;
+            x = ci.x + nx * rr; z = ci.z + nz * rr;
+            out.nx += nx; out.nz += nz; out.depth = Math.max(out.depth, rr - d); out.hit = true;
+          }
+        }
       }
     }
     for (const b of this.boxes) {

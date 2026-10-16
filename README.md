@@ -50,7 +50,20 @@ Gamepads are supported too.
 - **Wanted level** (5 stars), police pursuit with route-finding, getting busted or wasted
   (you can't swim, so keep out of the lakes and the Yangon River).
 - **Traffic drives on the right**, as in Myanmar, but most cars are right-hand drive, so you
-  climb out on the right. YBS buses, Probox taxis, Mark II sedans, Lain-Ka pickups.
+  climb out on the right. The traffic is what you actually see in Yangon: white Probox taxis
+  with roof signs, 90s Mark II sedans, Hiace vans, Hilux "lain-ka" line-cars with benches and
+  a canopy over the bed, YBS city buses and, on the downtown side streets, pedal-powered
+  sai-ka trishaws. Cars line the kerbs, two wheels up on the pavement on the narrow streets.
+  Bodies have real silhouettes and wheel arches, reflective paint, glass and chrome, and
+  alloy wheels.
+- **Buildings** use a painted facade atlas: colonial stucco, 1960s–80s apartment blocks with
+  balconies, laundry and AC units, glass towers, brick, and Chinatown shophouses. Ground floors
+  facing a street are shops (signboards, half-open shutters, goods inside, lit at night);
+  rooftops carry water tanks, stair huts and satellite dishes. The City Hall, the Secretariat,
+  the High Court, Central Station and The Strand get their own heritage treatments.
+- **Chinatown (Latha)** has Chinese and Burmese shop signs, vertical blade signs, red lanterns
+  strung across the streets, tangled power lines, the 19th Street barbecue stalls, and the
+  Kheng Hock Keong and Kwan Yin temples.
 - Pedestrians in longyi and monks in maroon robes, a day–night cycle with neon sunsets,
   lit windows at night, and floodlit golden pagodas.
 - Three procedurally generated radio stations (synthwave, electro, and a pentatonic chill station),
@@ -88,7 +101,8 @@ src/main.js                  game loop and wiring
 src/world/                   terrain, tile streaming, landmarks, sky, collision
 src/vehicles/                car models, instanced renderer, arcade physics
 src/humans/                  people models + instanced renderer
-src/ai/                      road graph + A*, traffic, pedestrians, police
+src/facades.js               procedural facade atlas and shop-sign textures
+src/ai/                      road graph + A*, traffic, parked cars, pedestrians, police
 src/missions.js              missions, taxi fares, collectibles, pickups
 src/audio.js                 synthesized engine, SFX and radio
 tools/                       map data pipeline

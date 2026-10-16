@@ -15,6 +15,7 @@ import { VehicleRenderer } from './vehicles/renderer.js';
 import { HumanRenderer } from './humans/renderer.js';
 import { Vehicle } from './vehicles/vehicle.js';
 import { Traffic } from './ai/traffic.js';
+import { Parked } from './ai/parked.js';
 import { Peds } from './ai/peds.js';
 import { Police } from './ai/police.js';
 import { AIDriver } from './ai/driver.js';
@@ -75,18 +76,24 @@ class Game {
     this.collision = new CollisionWorld(this.map);
     this.graph = new RoadGraph(this.map);
     this.progress(0.52, 'Painting buildings…'); await nextFrame();
-    this.mats = createMaterials(this.renderer);
+    this.mats = await createMaterials(this.renderer, this.settings.quality);
     initProps();
     const ll = (lat, lon) => this.map.fromLatLon(lat, lon);
     const core = [ll(16.7675, 96.140), ll(16.7665, 96.176), ll(16.784, 96.176), ll(16.785, 96.140)].flatMap((p) => [p.x, p.z]);
-    this.chunks = new ChunkManager(this.scene, this.map, this.mats, this.quality, (x, z) => pointInPoly(core, x, z));
+    const latha = this.map.districts.find((d) => d.name === 'Latha');
+    const china = latha ? (x, z) => x >= latha.x0 && x <= latha.x1 && z >= latha.z0 && z <= latha.z1 && pointInPoly(latha.pts, x, z) : () => false;
+    this.inChinatown = china;
+    this.inCore = (x, z) => pointInPoly(core, x, z);
+    this.chunks = new ChunkManager(this.scene, this.map, this.mats, this.quality, {
+      core: this.inCore, china, collision: this.collision,
+    });
     this.progress(0.6, 'Filling the lakes…'); await nextFrame();
     this.static = buildStatic(this.scene, this.map, this.mats, this.quality);
     this.progress(0.68, 'Gilding the pagodas…'); await nextFrame();
     buildLandmarks(this.scene, this.map, this.mats, this.collision, this.chunks);
     this.sky = new Sky(this.scene, this.quality);
     this.sky.setView(this.quality.view);
-    this.vrender = new VehicleRenderer(this.scene, this.quality);
+    this.vrender = new VehicleRenderer(this.scene, this.quality, this.mats.env);
     this.hrender = new HumanRenderer(this.scene);
     this.fx = new FX(this.scene);
 
@@ -111,6 +118,7 @@ class Game {
     this.player.human.heading = Math.atan2(-dx, -dz);
     this.focus.x = sx; this.focus.z = sz;
     this.traffic = new Traffic(this);
+    this.parked = new Parked(this);
     this.peds = new Peds(this);
     this.police = new Police(this);
     this.missions = new Missions(this);
@@ -130,7 +138,7 @@ class Game {
           const x = P.x - P.tz * half * side, z = P.z + P.tx * half * side;
           const v = new Vehicle(types[placed][0], x, z, Math.atan2(P.tx, P.tz), types[placed][1]);
           const clear = v.circleOffsets.every((off) => !this.collision.resolveCircle(x + P.tx * off, z + P.tz * off, v.circleR + 0.3, {}).hit);
-          if (clear && !this.collision.isWater(x, z)) { this.addVehicle(v); placed++; break; }
+          if (clear && !this.collision.isWater(x, z)) { v.sleeping = true; this.addVehicle(v); placed++; break; }
         }
       }
     }
@@ -146,6 +154,7 @@ class Game {
       this.progress(0.74 + 0.22 * (1 - Math.min(1, pending / 30)), 'Building downtown…');
       await nextFrame();
     }
+    this.parked.fill(sx, sz);
     if (dbg) console.log('chunks', (performance.now() - t0).toFixed(0)); t0 = performance.now();
     // radar & map
     this.mapImage = await MapImage.load(this.map);
@@ -390,6 +399,7 @@ class Game {
       this.camRig.snap(h.x, h.y + 1.5, h.z, this.camRig.yaw);
       // stream the new neighbourhood while the screen is still black
       this.chunks.update(h.x, h.z, this.quality.view, 250);
+      this.parked.fill(h.x, h.z);
       $('fade').classList.remove('red', 'blue', 'black');
       this.hud.flashMessage(`${label}  -$${fine}`);
     }, 700);
@@ -539,6 +549,7 @@ class Game {
     this.collideHumans();
 
     this.traffic.update(dt);
+    this.parked.update(dt);
     this.peds.update(dt);
     this.police.update(dt);
     this.missions.update(dt);
@@ -628,7 +639,7 @@ class Game {
   // ------------------------------------------------------------------ render
   render() {
     const vr = this.vrender, hr = this.hrender;
-    vr.begin(this.time, this.sky.night);
+    vr.begin(this.time, this.sky.night, this.sky.daylight);
     for (const v of this.vehicles) vr.add(v, this.camera.position);
     vr.end();
     hr.begin();

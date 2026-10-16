@@ -49,6 +49,11 @@ export class Vehicle {
   get forwardSpeed() { return this.vx * Math.sin(this.heading) + this.vz * Math.cos(this.heading); }
 
   step(dt, world) {
+    if (this.sleeping) {
+      // parked cars cost nothing until something touches them
+      if (this.driver || this.fire > 0 || this.vx * this.vx + this.vz * this.vz > 0.01 || Math.abs(this.yawRate) > 0.01) this.sleeping = false;
+      else return;
+    }
     const d = this.def;
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
     const lx = Math.cos(this.heading), lz = -Math.sin(this.heading); // left

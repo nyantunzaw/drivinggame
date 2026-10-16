@@ -8,12 +8,18 @@ import { ROAD_HALF } from '../config.js';
 
 const P = { x: 0, z: 0, tx: 0, tz: 0 };
 
-function pickType(cls) {
-  const entries = Object.entries(VEHICLE_TYPES).filter(([k, d]) => d.weight > 0 && (k !== 'bus' || cls <= 2));
+// zone: 'china' (Latha), 'core' (downtown grid) or null. Trishaws only work the
+// narrow downtown streets; buses stick to the main roads.
+function pickType(cls, zone) {
+  const w = (k, d) => {
+    if (k === 'trishaw') return cls >= 3 ? (zone === 'china' ? 2.5 : zone === 'core' ? 0.9 : 0) : 0;
+    if (k === 'bus') return cls <= 2 ? d.weight : 0;
+    return d.weight;
+  };
   let total = 0;
-  for (const [, d] of entries) total += d.weight;
+  for (const [k, d] of Object.entries(VEHICLE_TYPES)) total += w(k, d);
   let r = Math.random() * total;
-  for (const [k, d] of entries) { r -= d.weight; if (r <= 0) return k; }
+  for (const [k, d] of Object.entries(VEHICLE_TYPES)) { r -= w(k, d); if (w(k, d) > 0 && r <= 0) return k; }
   return 'sedan';
 }
 
@@ -62,7 +68,8 @@ export class Traffic {
       if (this.game.collision.isWater(px, pz)) continue;
       let clear = true;
       for (const v of this.game.vehicles) {
-        if ((v.x - px) ** 2 + (v.z - pz) ** 2 < 18 * 18) { clear = false; break; }
+        const r = v.parked ? 7 : 18;
+        if ((v.x - px) ** 2 + (v.z - pz) ** 2 < r * r) { clear = false; break; }
       }
       if (!clear) continue;
       return { e, dir, s: dir > 0 ? s : e.len - s, x: px, z: pz, heading: Math.atan2(P.tx, P.tz) };
@@ -71,9 +78,11 @@ export class Traffic {
   }
 
   spawn(type, spot, mode = 'cruise') {
-    const v = new Vehicle(type || pickType(spot.e.cls), spot.x, spot.z, spot.heading);
+    const g = this.game;
+    const zone = g.inChinatown && g.inChinatown(spot.x, spot.z) ? 'china' : g.inCore && g.inCore(spot.x, spot.z) ? 'core' : null;
+    const v = new Vehicle(type || pickType(spot.e.cls, zone), spot.x, spot.z, spot.heading);
     const d = new AIDriver(this.game.graph, v, spot.e, spot.dir, spot.s, { mode });
-    const f = 7 + Math.random() * 4;
+    const f = Math.min(7 + Math.random() * 4, v.def.top * 0.8);
     v.vx = Math.sin(v.heading) * f; v.vz = Math.cos(v.heading) * f;
     this.game.addVehicle(v);
     return { v, d };
@@ -85,7 +94,7 @@ export class Traffic {
     const keepR = g.quality.view + 120;
     // recycle
     for (const v of g.vehicles.slice()) {
-      if (v.persistent || v === g.player.vehicle) continue;
+      if (v.persistent || v.parked || v === g.player.vehicle) continue;
       const d = Math.hypot(v.x - c.x, v.z - c.z);
       const ai = v.driver instanceof AIDriver ? v.driver : null;
       const stale = ai && (ai.finished || ai.lost > 4);
@@ -95,7 +104,7 @@ export class Traffic {
     }
     // spawn
     this.spawnTimer -= dt;
-    const n = g.vehicles.filter((v) => !v.persistent && v !== g.player.vehicle && !(v.driver && v.driver.mode === 'pursue')).length;
+    const n = g.vehicles.filter((v) => !v.persistent && !v.parked && v !== g.player.vehicle && !(v.driver && v.driver.mode === 'pursue')).length;
     if (n < this.target && this.spawnTimer <= 0) {
       this.spawnTimer = g.time < 3 ? 0 : 0.25;
       const early = g.time < 3;

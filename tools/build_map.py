@@ -147,10 +147,26 @@ LANDMARKS = {
     "chinatown": (16.77650, 96.14950, "Chinatown (19th Street)", "တရုတ်တန်း"),
     "highcourt": (16.77307, 96.16090, "High Court", "တရားလွှတ်တော်"),
     "parliament": (16.79490, 96.13731, "Regional Parliament", "တိုင်းဒေသကြီးလွှတ်တော်"),
+    "khenghockkeong": (16.77259, 96.14867, "Kheng Hock Keong Temple", "ကျိန်းဟုတ်ကြောင်းဘုရားကျောင်း"),
+    "guanyin": (16.77494, 96.15008, "Guanyin Gumiao Temple", "ကွမ်ရင်ဘုရားကျောင်း"),
 }
 # Procedurally modelled landmarks: remove the OSM footprints underneath them.
 EXCLUDE = {"shwedagon": 175, "sule": 24, "botataung": 26, "mahawizaya": 40, "karaweik": 55,
            "independence": 14}
+
+# Footprints replaced (Chinese temples) or decorated (heritage roofs) by landmarks.js.
+# Their oriented rectangle is exported with the landmark.
+FOOTPRINT_LANDMARKS = {
+    "khenghockkeong": ("Kheng Hock Keong",), "guanyin": ("Guanyin Gumiao Temple",),
+    "cityhall": ("Yangon City Hall", "ရန်ကုန်မြို့တော်ခန်းမ"), "station": ("Yangon Central Railway Station", "ရန်ကုန် ဘူတာကြီး"),
+    "highcourt": ("High Court",), "secretariat": ("Ministers' Building", "ဝန်ကြီးများရုံး"),
+    "strand": ("The Strand Hotel",),
+}
+REPLACED = {"khenghockkeong", "guanyin"}
+# Colonial heritage facades: 7 = red brick, 8 = cream/white stucco
+HERITAGE = {"High Court": 7, "Ministers' Building": 7, "ဝန်ကြီးများရုံး": 7, "Yangon City Hall": 8,
+            "ရန်ကုန်မြို့တော်ခန်းမ": 8, "The Strand Hotel": 8, "Strand Hotel - Bellroom": 8,
+            "Yangon Central Railway Station": 8, "ရန်ကုန် ဘူတာကြီး": 8, "Yangon Division Court": 7}
 
 # Hand-tuned heights for well known towers (metres).
 TOWERS = {"Sakura Tower": 88, "Sule Shangri-La": 80, "Junction City": 34,
@@ -351,7 +367,26 @@ def main():
             "entertainment": 2, "military": 4, "service": 6}
     bout = []
     stats = defaultdict(int)
+    rects = {}
     for b in blds:
+        nm = en_name(b["names"]) or ""
+        pr = (b["names"] or {}).get("primary") or ""
+        for key, names in FOOTPRINT_LANDMARKS.items():
+            if (nm in names or pr in names) and key not in rects:
+                g = proj(shapely.from_wkb(b["geometry"]))
+                g = max(polys(g), key=lambda q: q.area)
+                r = g.minimum_rotated_rectangle
+                cs = list(r.exterior.coords)[:4]
+                e1 = (cs[1][0] - cs[0][0], cs[1][1] - cs[0][1])
+                e2 = (cs[2][0] - cs[1][0], cs[2][1] - cs[1][1])
+                l1, l2 = math.hypot(*e1), math.hypot(*e2)
+                ang = math.atan2(e1[1], e1[0]) if l1 >= l2 else math.atan2(e2[1], e2[0])
+                rects[key] = [round(r.centroid.x, 1), round(r.centroid.y, 1), round(max(l1, l2), 1), round(min(l1, l2), 1), round(ang, 4), b["id"]]
+    replaced_ids = {rects[k][5] for k in REPLACED if k in rects}
+    for b in blds:
+        if b["id"] in replaced_ids:
+            stats["replaced"] += 1
+            continue
         if b["is_underground"]:
             continue
         geom = proj(shapely.from_wkb(b["geometry"]))
@@ -393,6 +428,8 @@ def main():
                 t = 3
             if "စေတီ" in prim or "pagoda" in name.lower() or "paya" in name.lower():
                 t = 3
+            if name in HERITAGE or prim in HERITAGE:
+                t = HERITAGE.get(name) or HERITAGE.get(prim)
             if name in TOWERS or prim in TOWERS:
                 h = TOWERS.get(name) or TOWERS.get(prim)
             elif b["height"]:
@@ -508,6 +545,8 @@ def main():
     for k, (lat, lon, en, my) in LANDMARKS.items():
         x, z = px(lon, lat)
         lm[k] = [round(x, 1), round(z, 1), en, my]
+        if k in rects:
+            lm[k] += rects[k][:5]   # footprint rect: cx, cz, length, width, angle
     data["landmarks"] = lm
     data["names"] = S.list
 

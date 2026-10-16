@@ -107,6 +107,8 @@ export class MapData {
     this.landmarks = {};
     for (const [k, v] of Object.entries(json.landmarks)) {
       this.landmarks[k] = { id: k, x: v[0], z: v[1], name: v[2], my: v[3] };
+      // optional footprint rectangle: centre, long side, short side, angle of long side
+      if (v.length >= 9) this.landmarks[k].rect = { x: v[4], z: v[5], len: v[6], wid: v[7], ang: v[8] };
     }
   }
 

@@ -133,7 +133,8 @@ export class Audio {
       this.eng1.frequency.setTargetAtTime(f, t, 0.05);
       this.eng2.frequency.setTargetAtTime(f * 0.5, t, 0.05);
       this.engFilter.frequency.setTargetAtTime(300 + rpm * 1400 + v.input.throttle * 600, t, 0.08);
-      this.engGain.gain.setTargetAtTime(v.wrecked ? 0 : 0.07 + v.input.throttle * 0.07, t, 0.08);
+      // pedal-powered trishaws have no engine, only the tyres on the road
+      this.engGain.gain.setTargetAtTime(v.wrecked || v.def.pedal ? 0 : 0.07 + v.input.throttle * 0.07, t, 0.08);
       this.tyreGain.gain.setTargetAtTime(v.slip * 0.22 * clamp(sp / 10, 0, 1), t, 0.05);
     }
     // horn (player)

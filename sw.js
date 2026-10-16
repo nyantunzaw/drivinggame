@@ -1,15 +1,15 @@
 // Offline cache: the game is static files, so cache-first with background refresh.
-const CACHE = 'yangon-vice-v1';
+const CACHE = 'yangon-vice-v2';
 const CORE = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'data/yangon.json', 'data/radar.webp', 'vendor/three.module.min.js',
   'icons/icon-192.png', 'icons/icon-512.png',
-  'src/main.js', 'src/config.js', 'src/util.js', 'src/data.js', 'src/terrain.js', 'src/textures.js', 'src/input.js',
+  'src/main.js', 'src/config.js', 'src/util.js', 'src/data.js', 'src/terrain.js', 'src/textures.js', 'src/facades.js', 'src/input.js',
   'src/camera.js', 'src/player.js', 'src/audio.js', 'src/fx.js', 'src/missions.js',
   'src/world/sky.js', 'src/world/collision.js', 'src/world/materials.js', 'src/world/geo.js', 'src/world/props.js',
   'src/world/chunks.js', 'src/world/static.js', 'src/world/landmarks.js',
   'src/vehicles/models.js', 'src/vehicles/renderer.js', 'src/vehicles/vehicle.js',
   'src/humans/human.js', 'src/humans/renderer.js',
-  'src/ai/roadgraph.js', 'src/ai/driver.js', 'src/ai/traffic.js', 'src/ai/peds.js', 'src/ai/police.js',
+  'src/ai/roadgraph.js', 'src/ai/driver.js', 'src/ai/traffic.js', 'src/ai/parked.js', 'src/ai/peds.js', 'src/ai/police.js',
   'src/ui/hud.js', 'src/ui/minimap.js',
 ];
 
