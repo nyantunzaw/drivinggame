@@ -214,8 +214,18 @@ class Game {
     const fps = $('set-fps');
     fps.checked = !!this.settings.fps;
     fps.addEventListener('change', () => { this.settings.fps = fps.checked; this.saveSettings(); if (!fps.checked) this.hud.fps(0); });
-    $('reset-save').addEventListener('click', () => {
-      if (confirm('Erase your progress, money and collected Golden Hinthas?')) { storageSet('yv-save', { done: [], money: 0, hintha: [] }); location.reload(); }
+    // two-tap confirmation (dialogs like confirm() are blocked in some embeds)
+    const reset = $('reset-save');
+    let armed = 0;
+    reset.addEventListener('click', () => {
+      if (performance.now() - armed < 4000) {
+        storageSet('yv-save', { done: [], money: 0, hintha: [] });
+        location.reload();
+        return;
+      }
+      armed = performance.now();
+      reset.textContent = 'Tap again to erase missions, money and Golden Hinthas';
+      setTimeout(() => { reset.textContent = 'Reset saved progress'; }, 4000);
     });
     $('attribution').textContent = this.map.attribution;
     document.addEventListener('visibilitychange', () => { if (document.hidden && !this.paused) this.togglePause(true); });
