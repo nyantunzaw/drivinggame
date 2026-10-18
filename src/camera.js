@@ -41,7 +41,8 @@ export class CameraRig {
       const sp = v.speed;
       const fwd = v.forwardSpeed;
       let auto = v.heading;
-      if (sp > 4 && fwd > 0) auto = Math.atan2(v.vx, v.vz);
+      // look mostly where the car points; swing partly toward the slide only in real drifts
+      if (sp > 4 && fwd > 0) auto = v.heading + wrapAngle(Math.atan2(v.vx, v.vz) - v.heading) * 0.35;
       this.userYaw = wrapAngle(this.userYaw - look.dx * 0.006 * sens);
       if (!dragging) this.userYaw = damp(this.userYaw, 0, 2.5, dt);
       const desired = auto + this.userYaw;

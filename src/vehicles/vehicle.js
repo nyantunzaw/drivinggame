@@ -62,8 +62,10 @@ export class Vehicle {
     const inp = this.wrecked ? { throttle: 0, brake: 0.6, steer: 0, handbrake: 1 } : this.input;
     const sinking = this.sinking > 0;
 
-    // steering: limited at speed for stability, smoothed
-    const maxSteer = 0.62 / (1 + Math.abs(vf) / 21);
+    // steering: full lock at parking speeds, tapering with speed so that full input asks
+    // for a turn the tyres can actually hold (~1.2 g) instead of a slide
+    const wb = d.len * 0.64;
+    const maxSteer = Math.min(0.6, Math.atan((12 * wb) / (vf * vf + 1)));
     const target = -inp.steer * maxSteer;
     this.steerAngle = damp(this.steerAngle, target, 9, dt);
     const delta = this.steerAngle;
@@ -91,7 +93,9 @@ export class Vehicle {
     const a = d.len * 0.32, b = d.len * 0.32, L = a + b;
     const g = 9.81;
     const mu = 1.55 * d.grip;
-    const muR = mu * (inp.handbrake > 0 ? 0.42 : 1);
+    // rear tyres hold a little more than the fronts (mild understeer, like a road car);
+    // the handbrake takes that away so you can still throw it into a drift
+    const muR = mu * (inp.handbrake > 0 ? 0.42 : 1.12);
     const C = m * g * 7.5;
     let Fyf = 0, Fyr = 0;
     const speedAbs = Math.abs(vf);
@@ -100,8 +104,8 @@ export class Vehicle {
       const af = Math.atan2(vl + this.yawRate * a, speedAbs) - delta;
       const ar = Math.atan2(vl - this.yawRate * b, speedAbs);
       Fyf = clamp(-C * af, -mu * m * g * 0.5, mu * m * g * 0.5);
-      Fyr = clamp(-C * (inp.handbrake > 0 ? 0.45 : 1) * ar, -muR * m * g * 0.5, muR * m * g * 0.5);
-      this.slip = clamp((Math.abs(ar) - 0.1) * 3 + (inp.handbrake > 0 && speedAbs > 8 ? 0.6 : 0), 0, 1);
+      Fyr = clamp(-C * (inp.handbrake > 0 ? 0.45 : 1.3) * ar, -muR * m * g * 0.5, muR * m * g * 0.5);
+      this.slip = clamp((Math.abs(ar) - 0.12) * 2.5 + (inp.handbrake > 0 && speedAbs > 8 ? 0.6 : 0), 0, 1);
     } else {
       this.slip = 0;
     }
@@ -124,6 +128,16 @@ export class Vehicle {
       vf = this.vx * fx + this.vz * fz;
       vl = this.vx * lx + this.vz * lz;
       vl *= Math.exp(-8 * w * dt);
+      this.vx = fx * vf + lx * vl;
+      this.vz = fz * vf + lz * vl;
+    }
+    // stability assist (off on the handbrake): settle the yaw toward what the steering asks
+    // for and bleed off sideways sliding, so the car goes where it is pointed
+    if (dyn > 0 && vf > 0 && !(inp.handbrake > 0) && !sinking) {
+      this.yawRate += (kin - this.yawRate) * Math.min(1, 2.4 * dt) * dyn;
+      vf = this.vx * fx + this.vz * fz;
+      vl = this.vx * lx + this.vz * lz;
+      vl *= Math.exp(-1.2 * dyn * dt);
       this.vx = fx * vf + lx * vl;
       this.vz = fz * vf + lz * vl;
     }
@@ -206,7 +220,7 @@ export class Vehicle {
     const terrainRoll = Math.atan2(hl - hrt, d.wid * 0.8);
     // spring-damper body motion driven by acceleration
     const tp = clamp(this._accF * 0.012, -0.08, 0.08);
-    const tr = clamp(this._accL * 0.014, -0.09, 0.09);
+    const tr = clamp(this._accL * 0.01, -0.06, 0.06);
     this._pitchV = damp(this._pitchV, tp, 7, dt);
     this._rollV = damp(this._rollV, tr, 7, dt);
     this.pitch = terrainPitch + this._pitchV;

@@ -5,6 +5,15 @@ import { heightAt } from './terrain.js';
 import { clamp } from './util.js';
 
 export class Player {
+  // Keys are all-or-nothing: turn the wheel in over ~0.3 s and let it come back quicker,
+  // so a tap is a nudge rather than a yank.
+  static steerRamp(cur, target, dt) {
+    const back = Math.abs(target) < Math.abs(cur) || Math.sign(target) * Math.sign(cur) < 0;
+    const step = (back ? 7 : 3.2) * dt;
+    const d = target - cur;
+    return Math.abs(d) <= step ? target : cur + Math.sign(d) * step;
+  }
+
   constructor(game, x, z) {
     this.game = game;
     this.human = new Human('player', x, z);
@@ -70,6 +79,7 @@ export class Player {
   exit() {
     const v = this.vehicle;
     if (!v) return;
+    this.steer = 0;
     const g = this.game;
     const h = this.human;
     // Yangon cars are mostly right-hand drive: hop out on the right
@@ -108,7 +118,8 @@ export class Player {
       const v = this.vehicle;
       v.input.throttle = s.gas;
       v.input.brake = s.brake;
-      v.input.steer = s.steer;
+      this.steer = Player.steerRamp(this.steer || 0, s.steer, dt);
+      v.input.steer = this.steer;
       v.input.handbrake = s.handbrake;
       if (input.pressed('action') && !v.sinking) this.exit();
       else if (input.pressed('action') && v.sinking) this.exit();

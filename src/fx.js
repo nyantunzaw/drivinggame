@@ -141,7 +141,7 @@ export class FX {
         if (v.burning || (v.wrecked && Math.random() < 0.3)) {
           this.fire.emit(ex + (Math.random() - 0.5), v.y + 1.1, ez + (Math.random() - 0.5), 0, 3 + Math.random() * 2, 0, 0.5, 1.6, 1.2, 1, 0.5, 0.12, 1, 0);
         }
-        if (v.slip > 0.35 && v.speed > 8 && v.sinking === 0) {
+        if (v.slip > 0.45 && v.speed > 8 && v.sinking === 0) {
           const rx = v.x - fx * v.def.len * 0.35, rz = v.z - fz * v.def.len * 0.35;
           const c = 0.75 + night * -0.4;
           this.smoke.emit(rx, v.groundY + 0.4, rz, -v.vx * 0.05, 0.6, -v.vz * 0.05, 1.2, 1.2, 2.2, c, c, c, 0.45 * v.slip, -0.2);
