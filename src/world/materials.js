@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import * as T from '../textures.js';
 import { facadeTextures, signTexture, FACADE } from '../facades.js';
 
-export async function createMaterials(renderer, qualityName = 'high') {
+export async function createMaterials(renderer, qualityName = 'high', opts = {}) {
   const facade = facadeTextures(qualityName);
   const M = {};
 
@@ -16,9 +16,7 @@ export async function createMaterials(renderer, qualityName = 'high') {
     vertexColors: true,
   });
   const RS = `vec2(${(FACADE.RW / FACADE.SIZE).toFixed(6)}, ${(FACADE.RH / FACADE.SIZE).toFixed(6)})`;
-  M.building.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <map_fragment>', /* glsl */`
+  const atlasUv = /* glsl */`
         bool fRoof = vMapUv.y < -0.5;
         float fStyle = floor(vMapUv.x / 1000.0);
         float fU = vMapUv.x - fStyle * 1000.0;
@@ -27,18 +25,43 @@ export async function createMaterials(renderer, qualityName = 'high') {
         float fV = (fRow + fract(vMapUv.y)) * 0.25;
         vec2 fRS = ${RS};
         vec2 fCell = vec2(mod(fStyle, 3.0), floor(fStyle / 3.0));
-        vec2 fUv = vec2((fCell.x + fract(fU)) * fRS.x, 1.0 - (fCell.y + 1.0 - fV) * fRS.y);
+        vec2 fUv = vec2((fCell.x + fract(fU)) * fRS.x, 1.0 - (fCell.y + 1.0 - fV) * fRS.y);`;
+  // shopfronts: a warm, dimmer glow than upstairs windows, darkest down at the pavement
+  const shopGlow = 'if (fRow < 0.5) totalEmissiveRadiance *= vec3(0.62, 0.52, 0.4) * (0.55 + 0.45 * fract(vMapUv.y));';
+  // Full version: explicit gradients so mip selection ignores the wrap-around seams.
+  const facadeFull = (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <map_fragment>', /* glsl */`${atlasUv}
         vec2 fGx = vec2(dFdx(fU) * fRS.x, dFdx(vMapUv.y) * 0.25 * fRS.y);
         vec2 fGy = vec2(dFdy(fU) * fRS.x, dFdy(vMapUv.y) * 0.25 * fRS.y);
         if (!fRoof) diffuseColor *= textureGrad(map, fUv, fGx, fGy);
       `)
       .replace('#include <emissivemap_fragment>', /* glsl */`
         totalEmissiveRadiance *= fRoof ? vec3(0.0) : textureGrad(emissiveMap, fUv, fGx, fGy).rgb;
-        // shopfronts: a warm, dimmer glow than upstairs windows, darkest down at the pavement
-        if (fRow < 0.5) totalEmissiveRadiance *= vec3(0.62, 0.52, 0.4) * (0.55 + 0.45 * fract(vMapUv.y));
+        ${shopGlow}
       `);
   };
+  // Compatibility version (WebGL1, fussy drivers): plain lookups, faint seams between bays.
+  const facadeSimple = (shader) => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <map_fragment>', /* glsl */`${atlasUv}
+        vec4 fTex = texture2D(map, fUv);
+        vec3 fEmi = texture2D(emissiveMap, fUv).rgb;
+        if (!fRoof) diffuseColor *= fTex;
+      `)
+      .replace('#include <emissivemap_fragment>', /* glsl */`
+        totalEmissiveRadiance *= fRoof ? vec3(0.0) : fEmi;
+        ${shopGlow}
+      `);
+  };
+  M.useSimpleFacade = () => {
+    M.building.onBeforeCompile = facadeSimple;
+    M.building.customProgramCacheKey = () => 'building-atlas-simple';
+    M.building.needsUpdate = true;
+  };
+  M.building.onBeforeCompile = facadeFull;
   M.building.customProgramCacheKey = () => 'building-atlas';
+  if (opts.simpleFacade || !renderer.capabilities.isWebGL2) M.useSimpleFacade();
 
   const asphalt = T.asphaltTexture();
   M.road = new THREE.MeshLambertMaterial({

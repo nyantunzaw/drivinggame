@@ -51,7 +51,8 @@ function vehicleMaterial(timeUniform, env, pbr) {
 export class VehicleRenderer {
   constructor(scene, quality, env) {
     this.scene = scene;
-    this.pbr = quality.detail !== false && !!env;
+    this.env = env;
+    this.pbr = quality.detail !== false && quality.pbr !== false && !!env;
     this.time = { value: 0 };
     this.night = 0;
     const geos = buildVehicleGeometries();
@@ -112,6 +113,18 @@ export class VehicleRenderer {
     this._s = new THREE.Vector3();
     this._c = new THREE.Color();
     this._shadowN = 0;
+  }
+
+  // Swap between reflective (PBR) paint and the cheaper matte material.
+  setPBR(on) {
+    on = on && !!this.env;
+    if (on === this.pbr) return;
+    this.pbr = on;
+    const mat = vehicleMaterial(this.time, this.env, on);
+    for (const k in this.meshes) this.meshes[k].mesh.material = mat;
+    this.wheels.material = mat;
+    this.mat.dispose();
+    this.mat = mat;
   }
 
   begin(time, night, daylight = 1) {

@@ -1,9 +1,9 @@
 // Offline cache: the game is static files, so cache-first with background refresh.
-const CACHE = 'yangon-vice-v2';
+const CACHE = 'yangon-vice-v3';
 const CORE = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'data/yangon.json', 'data/radar.webp', 'vendor/three.module.min.js',
   'icons/icon-192.png', 'icons/icon-512.png',
-  'src/main.js', 'src/config.js', 'src/util.js', 'src/data.js', 'src/terrain.js', 'src/textures.js', 'src/facades.js', 'src/input.js',
+  'src/main.js', 'src/gfxguard.js', 'src/config.js', 'src/util.js', 'src/data.js', 'src/terrain.js', 'src/textures.js', 'src/facades.js', 'src/input.js',
   'src/camera.js', 'src/player.js', 'src/audio.js', 'src/fx.js', 'src/missions.js',
   'src/world/sky.js', 'src/world/collision.js', 'src/world/materials.js', 'src/world/geo.js', 'src/world/props.js',
   'src/world/chunks.js', 'src/world/static.js', 'src/world/landmarks.js',

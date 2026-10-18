@@ -1,6 +1,7 @@
 // Yangon Vice — entry point. Wires the world, simulation, UI and audio together.
 import * as THREE from 'three';
-import { QUALITY, defaultQuality, START_HOUR, SECONDS_PER_HOUR, ROAD_HALF, isTouchDevice } from './config.js';
+import { QUALITY, defaultQuality, probeGPU, START_HOUR, SECONDS_PER_HOUR, ROAD_HALF, isTouchDevice } from './config.js';
+import { GfxGuard, GFX_STEPS } from './gfxguard.js';
 import { loadMap } from './data.js';
 import { setHillCenter } from './terrain.js';
 import { CollisionWorld } from './world/collision.js';
@@ -34,9 +35,15 @@ const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
 
 class Game {
   constructor() {
-    this.settings = Object.assign({ quality: defaultQuality(), music: 0.55, sfx: 0.8, sensitivity: 1, fps: false }, storageGet('yv-settings', {}));
+    this.gpu = probeGPU();
+    this.settings = Object.assign({ quality: defaultQuality(this.gpu), music: 0.55, sfx: 0.8, sensitivity: 1, fps: false, gfxOff: [] }, storageGet('yv-settings', {}));
     if (!QUALITY[this.settings.quality]) this.settings.quality = 'medium';
-    this.quality = QUALITY[this.settings.quality];
+    // a copy: compatibility fixes below adjust it per device
+    this.quality = { ...QUALITY[this.settings.quality] };
+    const off = new Set(this.settings.gfxOff || []);
+    if (off.has('shadows')) this.quality.shadows = false;
+    if (off.has('pbr')) this.quality.pbr = false;
+    if (off.has('lowres')) { this.quality.pixelRatio = 1; this.quality.antialias = false; }
     this.time = 0;
     this.paused = true;
     this.vehicles = [];
@@ -54,11 +61,23 @@ class Game {
   }
 
   async init() {
+    const gfxOff = new Set(this.settings.gfxOff || []);
     const touch = isTouchDevice();
     document.body.classList.toggle('touch', touch);
     const canvas = $('game');
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality.antialias, powerPreference: 'high-performance' });
-    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); console.warn('WebGL context lost'); });
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.onContextLost(); });
+    canvas.addEventListener('webglcontextrestored', () => { this.contextLost = false; });
+    this.renderer.debug.onShaderError = (gl, program, vs, fs) => {
+      const log = (gl.getShaderInfoLog(fs) || gl.getShaderInfoLog(vs) || gl.getProgramInfoLog(program) || '').trim();
+      console.error('Shader error:', log);
+      this.showError(`A shader failed to compile on this GPU: ${log.split('\n')[0].slice(0, 160)}`);
+      // the custom effects are the likely cause: fall back to the plain versions, also next time
+      const off = new Set(this.settings.gfxOff || []);
+      for (const id of ['facade', 'pbr']) { off.add(id); this.applyGfxOff(id); }
+      this.settings.gfxOff = [...off];
+      this.saveSettings();
+    };
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -76,7 +95,8 @@ class Game {
     this.collision = new CollisionWorld(this.map);
     this.graph = new RoadGraph(this.map);
     this.progress(0.52, 'Painting buildings…'); await nextFrame();
-    this.mats = await createMaterials(this.renderer, this.settings.quality);
+    this.mats = await createMaterials(this.renderer, this.settings.quality, { simpleFacade: gfxOff.has('facade') });
+    if (gfxOff.has('detail')) this.applyGfxOff('detail');
     initProps();
     const ll = (lat, lon) => this.map.fromLatLon(lat, lon);
     const core = [ll(16.7675, 96.140), ll(16.7665, 96.176), ll(16.784, 96.176), ll(16.785, 96.140)].flatMap((p) => [p.x, p.z]);
@@ -94,6 +114,7 @@ class Game {
     this.sky = new Sky(this.scene, this.quality);
     this.sky.setView(this.quality.view);
     this.vrender = new VehicleRenderer(this.scene, this.quality, this.mats.env);
+    this.guard = new GfxGuard(this);
     this.hrender = new HumanRenderer(this.scene);
     this.fx = new FX(this.scene);
 
@@ -213,6 +234,15 @@ class Game {
     q.value = this.settings.quality;
     q.addEventListener('change', () => { this.settings.quality = q.value; this.saveSettings(); $('quality-note').style.display = 'block'; });
     $('quality-reload').addEventListener('click', () => location.reload());
+    const gfxInfo = () => {
+      const off = (this.settings.gfxOff || []).map((id) => GFX_STEPS.find((s) => s.id === id)?.label).filter(Boolean);
+      const gl2 = this.renderer.capabilities.isWebGL2 ? 'WebGL 2' : 'WebGL 1';
+      $('gfx-info').textContent = `GPU: ${this.gpu.name} · ${gl2}` + (off.length ? ` · Switched off for this device: ${off.join(', ')}.` : '');
+      $('gfx-reset').style.display = off.length ? '' : 'none';
+    };
+    gfxInfo();
+    $('menu-settings').addEventListener('click', gfxInfo);
+    $('gfx-reset').addEventListener('click', () => { this.settings.gfxOff = []; this.saveSettings(); location.reload(); });
     const bindRange = (id, key, fn) => {
       const el = $(id); el.value = this.settings[key];
       el.addEventListener('input', () => { this.settings[key] = Number(el.value); fn && fn(); this.saveSettings(); });
@@ -241,6 +271,54 @@ class Game {
   }
 
   saveSettings() { storageSet('yv-settings', this.settings); }
+
+  // Turn off one of the heavier graphics features (see gfxguard.js) while running.
+  applyGfxOff(id) {
+    const M = this.mats;
+    if (id === 'facade' && M) M.useSimpleFacade();
+    if (id === 'pbr' && this.vrender) this.vrender.setPBR(false);
+    if (id === 'detail' && M) { M.signs.visible = false; M.wires.visible = false; M.pool.visible = false; }
+    if (id === 'shadows' && this.renderer.shadowMap.enabled) {
+      this.renderer.shadowMap.enabled = false;
+      this.quality.shadows = false;
+      this.scene.traverse((o) => { if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true; });
+    }
+    if (id === 'lowres') {
+      this.quality.pixelRatio = 1;
+      this.pixelRatio = 1;
+      this.renderer.setPixelRatio(1);
+      this.resize();
+    }
+  }
+
+  // Visible error line, so a broken screen tells you why instead of just going blank.
+  showError(msg) {
+    const el = $('err-banner');
+    if (!el || el.dataset.shown === msg) return;
+    el.dataset.shown = msg;
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(this._errTimer);
+    this._errTimer = setTimeout(() => el.classList.remove('show'), 20000);
+  }
+
+  onContextLost() {
+    this.contextLost = true;
+    console.warn('WebGL context lost');
+    // A reset while the game is on screen usually means the driver gave up on something we
+    // drew: come back with the lighter settings (once; never loop).
+    if (document.visibilityState !== 'visible' || !this.started) return;
+    const all = GFX_STEPS.map((s) => s.id);
+    const already = all.every((id) => (this.settings.gfxOff || []).includes(id));
+    if (already) {
+      this.showError(`The graphics driver keeps resetting on this device (${this.gpu.name}). Try Settings → Graphics quality → Low.`);
+      return;
+    }
+    this.settings.gfxOff = all;
+    this.saveSettings();
+    this.showError('The graphics driver reset. Reloading with lighter graphics…');
+    setTimeout(() => location.reload(), 1800);
+  }
 
   showPanel(name) {
     for (const p of document.querySelectorAll('.menu-panel')) p.classList.toggle('active', p.dataset.panel === name);
@@ -648,6 +726,14 @@ class Game {
     this.renderer.render(this.scene, this.camera);
   }
 
+  safeRender() {
+    try {
+      this.render();
+    } catch (e) {
+      if (!this._renderErr) { this._renderErr = true; console.error(e); this.showError(`Drawing failed: ${e.message}`); }
+    }
+  }
+
   frame(t) {
     requestAnimationFrame((tt) => this.frame(tt));
     const now = t / 1000;
@@ -659,7 +745,8 @@ class Game {
       const a = performance.now();
       this.update(dt);
       const b = performance.now();
-      this.render();
+      this.safeRender();
+      if (this.guard) this.guard.afterRender(dt);
       this.perf = { update: b - a, render: performance.now() - b };
       const yaw = this.camRig.yaw;
       this.radar.draw(this, yaw, this.blips(), this.route);
@@ -676,7 +763,7 @@ class Game {
       const a = this.time * 0.05;
       this.camera.position.set(L.x + Math.sin(a) * 160, 70, L.z + Math.cos(a) * 160);
       this.camera.lookAt(L.x, 20, L.z);
-      this.render();
+      this.safeRender();
     } else {
       if (this.input.pressed('pause')) this.togglePause(false);
       this.input.endFrame();
@@ -710,6 +797,8 @@ game.init().catch((e) => {
   console.error(e);
   $('load-text').textContent = 'Failed to start: ' + e.message;
 });
+window.addEventListener('error', (e) => game.showError(`Error: ${e.message}`));
+window.addEventListener('unhandledrejection', (e) => game.showError(`Error: ${e.reason && e.reason.message ? e.reason.message : e.reason}`));
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});

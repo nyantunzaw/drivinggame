@@ -81,6 +81,7 @@
 </div>
 
 <div id="fade"></div>
+<div id="err-banner" role="alert"></div>
 
 <div id="menu" class="screen hidden">
   <div class="menu-box">
@@ -103,6 +104,8 @@
       <label>Effects volume <input type="range" id="set-sfx" min="0" max="1" step="0.05"></label>
       <label>Camera sensitivity <input type="range" id="set-sens" min="0.4" max="2.2" step="0.1"></label>
       <label class="check"><input type="checkbox" id="set-fps"> Show FPS</label>
+      <p id="gfx-info" class="gfx-info"></p>
+      <button id="gfx-reset" class="link">Turn the switched-off graphics back on</button>
       <button id="reset-save" class="link danger">Reset saved progress</button>
       <button class="mbtn panel-back">Back</button>
     </div>

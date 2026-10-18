@@ -27,9 +27,30 @@ export function isTouchDevice() {
   return (('ontouchstart' in window) || navigator.maxTouchPoints > 0) && matchMedia('(pointer: coarse)').matches;
 }
 
-export function defaultQuality() {
+// Which GPU will draw the game, read from a throwaway WebGL context.
+export function probeGPU() {
+  try {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) return { name: 'none', webgl2: false };
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = String(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+    const webgl2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+    const lose = gl.getExtension('WEBGL_lose_context');
+    if (lose) lose.loseContext();
+    return { name, webgl2 };
+  } catch (e) {
+    return { name: 'unknown', webgl2: false };
+  }
+}
+
+export function defaultQuality(gpu = { name: '' }) {
   const touch = isTouchDevice();
   const mem = navigator.deviceMemory || 4;
   if (touch) return mem < 4 ? 'low' : 'medium';
+  // software rasterisers and basic display drivers: keep it light
+  if (/swiftshader|llvmpipe|softpipe|basic render|microsoft basic|warp|software/i.test(gpu.name)) return 'low';
+  // integrated laptop GPUs cope better without shadows and 2x resolution
+  if (/intel|mali|adreno|powervr|vivante|videocore/i.test(gpu.name)) return 'medium';
   return 'high';
 }

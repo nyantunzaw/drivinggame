@@ -141,6 +141,12 @@ button { font-family: inherit; }
 #fade.red { background: rgba(120, 0, 0, .35); }
 #fade.blue { background: rgba(0, 30, 120, .35); }
 #fade.black { background: rgba(0, 0, 0, 1); transition: background .6s; }
+#err-banner {
+  display: none; position: fixed; left: 50%; top: calc(54px + var(--safe-t)); transform: translateX(-50%); z-index: 40;
+  max-width: min(640px, 92vw); padding: 8px 14px; border-radius: 8px; background: rgba(120, 10, 30, .92); color: #fff;
+  font-size: 14px; font-weight: 600; line-height: 1.35; border: 1px solid #ff8aa8; pointer-events: none;
+}
+#err-banner.show { display: block; }
 
 /* ------------------------------------------------------------------ touch controls */
 #touch { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
@@ -252,6 +258,7 @@ body.touch #mission-counter { top: calc(146px + var(--safe-t)); font-size: 15px;
 .link { background: none; border: none; color: var(--cyan); text-decoration: underline; cursor: pointer; font-size: 15px; padding: 0; }
 .link.danger { color: #ff7a7a; align-self: flex-start; margin-top: 6px; }
 .note { display: none; color: var(--gold); }
+.gfx-info { font-size: 13px !important; opacity: .75; word-break: break-word; }
 .help-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 560px) { .help-cols { grid-template-columns: 1fr; } }
 
