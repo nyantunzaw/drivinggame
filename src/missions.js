@@ -385,9 +385,9 @@ export class Missions {
         dialog(['<b>Uncle Ba Tin:</b> Mingalaba, nephew! Welcome back to Yangon.', 'My cousin <b>Ko Zaw</b> is waiting at <b>Bogyoke Aung San Market</b>. Any car will do — just grab one.']),
         enterVehicle('Get in a <b>car</b>. Walk up to one and press <b>CAR</b> / <b>F</b>.'),
         destination(bog, { text: 'Pick up <b>Ko Zaw</b> at <b>Bogyoke Aung San Market</b>.', radius: 7 }),
-        dialog(['<b>Ko Zaw:</b> Took you long enough! Get me to <b>Shwedagon Pagoda</b> — evening prayers start soon!']),
+        dialog(['<b>Ko Zaw:</b> Took you long enough! Get me to <b>Shwedagon Pagoda</b> — I promised my mother I\'d make her offering on time!']),
         destination(shw, { text: 'Drive Ko Zaw to <b>Shwedagon Pagoda</b>.', radius: 8, timeFactor: 11 }),
-        dialog(['<b>Ko Zaw:</b> Just in time. The pagoda glows like gold at dusk... Uncle has more work for you.']),
+        dialog(['<b>Ko Zaw:</b> Just in time. Look at all that gold... Uncle has more work for you.']),
       ];
     } else if (def.id === 'mohinga') {
       let van = null;

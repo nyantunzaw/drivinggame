@@ -15,7 +15,7 @@ export const SIDEWALK = [3.0, 3.0, 2.6, 2.2, 1.6, 0, 0];
 
 // One in-game hour lasts this many real seconds (GTA style: 1 minute).
 export const SECONDS_PER_HOUR = 60;
-export const START_HOUR = 16.9;
+export const START_HOUR = 10.5;
 
 export const COLORS = {
   pink: '#ff3ea5',
