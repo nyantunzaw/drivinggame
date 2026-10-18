@@ -1,10 +1,12 @@
-// Instanced rendering for every vehicle in the world: one draw call per model type,
-// plus shared wheels, blob shadows and night-time headlight beams.
+// Instanced rendering for every vehicle in the world: one draw call per model type (with
+// a lighter version for distant traffic), plus shared wheels, blob shadows and night-time
+// headlight beams.
 import * as THREE from 'three';
 import { buildVehicleGeometries, wheelGeometry, VEHICLE_TYPES } from './models.js';
 import { blobTexture, glowTexture } from '../textures.js';
 
 const CAP = 48;
+const NEAR = 45; // metres: full-detail bodies and wheels inside this
 
 function vehicleMaterial(timeUniform, env, pbr) {
   // Physically based on capable devices: paint, glass and chrome pick up the sky.
@@ -55,11 +57,11 @@ export class VehicleRenderer {
     this.pbr = quality.detail !== false && quality.pbr !== false && !!env;
     this.time = { value: 0 };
     this.night = 0;
-    const geos = buildVehicleGeometries();
     const mat = vehicleMaterial(this.time, env, this.pbr);
     this.mat = mat;
     this.meshes = {};
-    for (const [k, g] of Object.entries(geos)) {
+    this.far = {};
+    for (const [set, geos] of [[this.meshes, buildVehicleGeometries()], [this.far, buildVehicleGeometries(1)]]) for (const [k, g] of Object.entries(geos)) {
       const lights = new THREE.InstancedBufferAttribute(new Float32Array(CAP * 3), 3);
       lights.setUsage(THREE.DynamicDrawUsage);
       g.setAttribute('iLights', lights);
@@ -71,15 +73,21 @@ export class VehicleRenderer {
       mesh.frustumCulled = false;
       mesh.castShadow = quality.shadows;
       scene.add(mesh);
-      this.meshes[k] = { mesh, lights, n: 0 };
+      set[k] = { mesh, lights, n: 0 };
     }
-    const wheelGeo = wheelGeometry();
-    wheelGeo.setAttribute('iLights', new THREE.InstancedBufferAttribute(new Float32Array(CAP * 4 * 3), 3));
-    this.wheels = new THREE.InstancedMesh(wheelGeo, mat, CAP * 4);
-    this.wheels.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.wheels.frustumCulled = false;
-    this.wheels.count = 0;
-    scene.add(this.wheels);
+    this.slots = [...Object.values(this.meshes), ...Object.values(this.far)];
+    const wheels = (lod) => {
+      const geo = wheelGeometry(lod);
+      geo.setAttribute('iLights', new THREE.InstancedBufferAttribute(new Float32Array(CAP * 4 * 3), 3));
+      const w = new THREE.InstancedMesh(geo, mat, CAP * 4);
+      w.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      w.frustumCulled = false;
+      w.count = 0;
+      scene.add(w);
+      return w;
+    };
+    this.wheels = wheels(0);
+    this.wheelsFar = wheels(1);
 
     const blob = new THREE.PlaneGeometry(1, 1);
     blob.rotateX(-Math.PI / 2);
@@ -121,8 +129,9 @@ export class VehicleRenderer {
     if (on === this.pbr) return;
     this.pbr = on;
     const mat = vehicleMaterial(this.time, this.env, on);
-    for (const k in this.meshes) this.meshes[k].mesh.material = mat;
+    for (const s of this.slots) s.mesh.material = mat;
     this.wheels.material = mat;
+    this.wheelsFar.material = mat;
     this.mat.dispose();
     this.mat = mat;
   }
@@ -131,15 +140,19 @@ export class VehicleRenderer {
     this.time.value = time;
     this.night = night;
     if (this.pbr) this.mat.envMapIntensity = 0.06 + daylight * 0.94;
-    for (const k in this.meshes) this.meshes[k].n = 0;
+    for (const s of this.slots) s.n = 0;
     this.wheels.count = 0;
+    this.wheelsFar.count = 0;
     this._shadowN = 0;
     this.beams.count = 0;
     this.beamMat.opacity = night * 0.32;
   }
 
   add(v, camPos) {
-    const slot = this.meshes[v.type];
+    const dx = v.x - camPos.x, dz = v.z - camPos.z;
+    const d2 = dx * dx + dz * dz;
+    const near = d2 < NEAR * NEAR;
+    const slot = (near ? this.meshes : this.far)[v.type];
     if (!slot || slot.n >= CAP) return;
     const i = slot.n++;
     const def = v.def;
@@ -158,9 +171,9 @@ export class VehicleRenderer {
     L[i * 3 + 2] = v.siren ? 1 : 0;
 
     // wheels (skip far away ones to save fill)
-    const dx = v.x - camPos.x, dz = v.z - camPos.z;
     const W = def.wheels;
-    if (dx * dx + dz * dz < 160 * 160 && this.wheels.count + W.length <= CAP * 4) {
+    const wm = near ? this.wheels : this.wheelsFar;
+    if (d2 < 160 * 160 && wm.count + W.length <= CAP * 4) {
       for (const w of W) {
         // left-hand wheels are the right-hand ones turned around, so hubs face out
         const left = w.x < 0;
@@ -170,7 +183,7 @@ export class VehicleRenderer {
         this._s.set(w.w, w.r, w.r);
         this._m2.compose(this._p, this._q2, this._s);
         this._m2.premultiply(this._m);
-        this.wheels.setMatrixAt(this.wheels.count++, this._m2);
+        wm.setMatrixAt(wm.count++, this._m2);
       }
     }
     this.shadow(v.x, v.groundY + 0.13, v.z, def.wid * 1.25, def.len * 1.15, v.heading);
@@ -196,14 +209,14 @@ export class VehicleRenderer {
   }
 
   end() {
-    for (const k in this.meshes) {
-      const s = this.meshes[k];
+    for (const s of this.slots) {
       s.mesh.count = s.n;
       s.mesh.instanceMatrix.needsUpdate = true;
       if (s.mesh.instanceColor) s.mesh.instanceColor.needsUpdate = true;
       s.lights.needsUpdate = true;
     }
     this.wheels.instanceMatrix.needsUpdate = true;
+    this.wheelsFar.instanceMatrix.needsUpdate = true;
     this.shadows.count = this._shadowN;
     this.shadows.instanceMatrix.needsUpdate = true;
     this.beams.instanceMatrix.needsUpdate = true;

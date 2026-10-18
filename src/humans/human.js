@@ -2,11 +2,17 @@
 import * as THREE from 'three';
 import { heightAt } from '../terrain.js';
 import { damp, dampAngle, pick } from '../util.js';
+import { THIGH, SHIN } from './renderer.js';
 
-const SHIRTS = ['#e8e8e8', '#f4f1e6', '#3a6fb0', '#c43b3b', '#2f8f6a', '#e3b23c', '#7b4fa0', '#f08a5d', '#ff6fae', '#4fc3e0', '#1f1f22', '#8fbf5a'];
+const SHIRTS = ['#e8e8e8', '#f4f1e6', '#3a6fb0', '#c43b3b', '#2f8f6a', '#e3b23c', '#7b4fa0', '#2a9d8f', '#ff6fae', '#4fc3e0', '#1f1f22', '#8fbf5a'];
 const LONGYI = ['#2c3e66', '#4a3a6e', '#2f5a3a', '#6b2c34', '#3d3d55', '#5b4a2e', '#1f4f5f', '#7a4b6b', '#40556a'];
 const PANTS = ['#2b3346', '#1c1c20', '#5a5148', '#33415c', '#6b6b6b', '#a8916a'];
+const HTAMEIN = ['#8a2448', '#5b2a6e', '#b0475a', '#2f5a6e', '#c27a2c', '#6b2c34', '#3f6b4a', '#9c3f7a', '#274060'];
+const BLOUSE = ['#f4f1e6', '#ffffff', '#f2d8e0', '#e9e1c8', '#bfe0e8', '#f3c9a8', '#d8c9ef', '#e8e8e8', '#f6e7a8'];
 const ROBE = '#8a2a1e';
+// Burmese skin tones, light to dark
+const SKINS = ['#d9a77c', '#cd9a6e', '#c68c60', '#b97d52', '#ab6f48', '#9c6440', '#8a5636'];
+const LEG = THIGH + SHIN;
 
 const res = { x: 0, z: 0, nx: 0, nz: 0, hit: false, depth: 0 };
 
@@ -23,7 +29,10 @@ export class Human {
     this.health = 100;
     this.state = 'idle';     // idle | walk | run | down | flying | dead
     this.phase = Math.random() * 6;
-    this.legSwing = 0; this.armSwing = 0;
+    this.amp = 0; this.runF = 0;
+    // joint angles, [right, left]: shoulder/hip swing forward when negative, elbows bend
+    // forward and knees backward when positive, roll lifts the arms out to the side
+    this.pose = { shoulder: [0, 0], roll: [0.07, 0.07], elbow: [0.15, 0.15], hip: [0, 0], knee: [0.04, 0.04] };
     this.bobY = 0; this.tiltX = 0; this.tiltZ = 0;
     this.punch = 0;
     this.armsUp = false;
@@ -36,22 +45,34 @@ export class Human {
 
   setLook(kind) {
     const lin = (h) => new THREE.Color(h);
+    this.skin = lin(pick(SKINS));
+    this.scale = 0.95 + Math.random() * 0.09;
     if (kind === 'monk') {
       this.variant = 'monk';
       this.shirt = lin(ROBE);
-      this.lower = lin(ROBE);
+      this.lower = lin('#7a2419');
     } else if (kind === 'cop') {
-      this.variant = 'pants';
+      this.variant = 'cop';
       this.shirt = lin('#c9b48a');   // khaki police uniform
       this.lower = lin('#3b3a33');
     } else if (kind === 'player') {
       this.variant = 'longyi';
       this.shirt = lin('#ff4fa3');   // loud Vice-City-pink shirt
       this.lower = lin('#2b3f73');
+      this.skin = lin('#c08a5f');
+      this.scale = 1;
     } else {
-      this.variant = Math.random() < 0.6 ? 'longyi' : 'pants';
-      this.shirt = lin(pick(SHIRTS));
-      this.lower = lin(this.variant === 'longyi' ? pick(LONGYI) : pick(PANTS));
+      const r = Math.random();
+      if (r < 0.4) {
+        this.variant = 'htamein';
+        this.shirt = lin(pick(BLOUSE));
+        this.lower = lin(pick(HTAMEIN));
+        this.scale *= 0.94;
+      } else {
+        this.variant = r < 0.78 ? 'longyi' : 'pants';
+        this.shirt = lin(pick(SHIRTS));
+        this.lower = lin(this.variant === 'longyi' ? pick(LONGYI) : pick(PANTS));
+      }
     }
   }
 
@@ -65,6 +86,8 @@ export class Human {
       this.x += this.vx * dt; this.z += this.vz * dt; this.y += this.vy * dt;
       this.tiltX += this.spinX * dt;
       this.tiltZ += this.spinZ * dt;
+      this.phase += dt * 9;
+      this.animate(dt, 'flying');
       if (collide && world) this.collide(world);
       this.groundY = heightAt(this.x, this.z);
       if (this.y <= this.groundY && this.vy < 0) {
@@ -82,7 +105,7 @@ export class Human {
       this.groundY = heightAt(this.x, this.z);
       this.y = this.groundY + 0.15;
       this.tiltX = damp(this.tiltX, -Math.PI / 2, 10, dt);
-      this.legSwing = 0; this.armSwing = 0;
+      this.animate(dt, 'down');
       if (this.state === 'down') {
         this.downTimer -= dt;
         if (this.downTimer <= 0) { this.state = 'idle'; this.tiltX = 0; }
@@ -103,17 +126,69 @@ export class Human {
     // face movement
     const sp = this.speed;
     if (sp > 0.3) this.heading = dampAngle(this.heading, Math.atan2(this.vx, this.vz), 12, dt);
-    // walk cycle
-    this.phase += dt * (2.2 + sp * 1.55);
-    const amp = sp < 0.2 ? 0 : sp < 3 ? 0.45 : 0.85;
-    const target = Math.sin(this.phase) * amp;
-    this.legSwing = damp(this.legSwing, this.onGround ? target : 0.5, 18, dt);
-    this.armSwing = damp(this.armSwing, this.onGround ? target * 0.8 : -0.6, 18, dt);
-    this.bobY = this.onGround ? Math.abs(Math.cos(this.phase)) * amp * 0.06 : 0;
+    // walk cycle: about one stride (two steps) per 1.5 m walking, longer strides running
+    const skirt = this.variant !== 'pants' && this.variant !== 'cop';
+    this.phase += dt * Math.min(12, 1.5 + Math.min(sp, 2) * (skirt ? 4 : 3.2) + Math.max(0, sp - 2) * 1.1);
+    this.amp = damp(this.amp, sp < 0.2 ? 0 : 1, 6, dt);
+    this.runF = damp(this.runF, sp > 3.2 ? 1 : 0, 5, dt);
+    this.animate(dt, this.onGround ? 'move' : 'air', skirt);
     this.tiltX = damp(this.tiltX, sp > 4 ? 0.18 : 0, 8, dt);
     this.tiltZ = 0;
     if (this.punch > 0) this.punch = Math.max(0, this.punch - dt * 3.2);
     this.state = sp < 0.2 ? 'idle' : sp < 3 ? 'walk' : 'run';
+  }
+
+  // Joint angles for the current motion; the body is lowered so the standing foot stays
+  // on the ground (which also gives the natural rise and fall of a walk).
+  animate(dt, mode, skirt = false) {
+    const P = this.pose, ph = this.phase;
+    const sn = Math.sin(ph);
+    if (mode === 'down') {
+      for (let i = 0; i < 2; i++) {
+        P.shoulder[i] = damp(P.shoulder[i], -0.25, 8, dt); P.roll[i] = damp(P.roll[i], 0.55, 8, dt);
+        P.elbow[i] = damp(P.elbow[i], 0.35, 8, dt); P.hip[i] = damp(P.hip[i], i ? -0.15 : 0.05, 8, dt);
+        P.knee[i] = damp(P.knee[i], i ? 0.45 : 0.1, 8, dt);
+      }
+      this.bobY = 0;
+      return;
+    }
+    if (mode === 'flying') {
+      for (let i = 0; i < 2; i++) {
+        const w = Math.sin(ph + i * 2.1);
+        P.shoulder[i] = -1.4 + w * 0.8; P.roll[i] = 0.6 + w * 0.3; P.elbow[i] = 0.6 + w * 0.3;
+        P.hip[i] = -0.5 + Math.sin(ph * 0.8 + i * 2.6) * 0.4; P.knee[i] = 0.7 + w * 0.3;
+      }
+      this.bobY = 0;
+      return;
+    }
+    const a = this.amp, r = this.runF;
+    // stride and knee lift: a longyi or htamein keeps steps short
+    const A = a * ((skirt ? 0.32 : 0.42) * (1 - r) + (skirt ? 0.5 : 0.72) * r);
+    const K = a * (0.85 * (1 - r) + 1.55 * r);
+    for (let i = 0; i < 2; i++) {
+      const s = i ? -sn : sn;                 // right leg forward while sin > 0
+      const c = Math.cos(ph + 0.35 + i * Math.PI);
+      P.hip[i] = -A * s - r * a * 0.12;
+      P.knee[i] = 0.05 + 0.08 * a + K * Math.max(0, c) ** 1.5 + (r * a * 0.3) * Math.max(0, s);
+      P.shoulder[i] = (0.55 * A + 0.3 * a * r) * s + 0.04 - 0.12 * a * r;
+      P.elbow[i] = 0.12 + a * (0.18 + 0.25 * Math.max(0, -s)) * (1 - r) + r * (1.15 + 0.35 * Math.max(0, -s));
+      P.roll[i] = 0.07 + r * 0.05;
+    }
+    if (mode === 'air') {
+      P.hip[0] = -0.55; P.hip[1] = 0.1; P.knee[0] = 0.9; P.knee[1] = 0.5;
+    }
+    if (this.armsUp) {
+      for (let i = 0; i < 2; i++) { P.shoulder[i] = -2.85; P.roll[i] = 0.3; P.elbow[i] = 0.45; }
+    } else if (this.punch > 0) {
+      // jab with the right, guard up with the left
+      const e = Math.sin((1 - this.punch) * Math.PI);
+      P.shoulder[0] = -0.5 - 1.05 * e; P.elbow[0] = 1.9 * (1 - e) + 0.1; P.roll[0] = 0.12;
+      P.shoulder[1] = -0.65; P.elbow[1] = 2.0; P.roll[1] = 0.15;
+    }
+    // keep the lower foot on the ground
+    let h = 0;
+    for (let i = 0; i < 2; i++) h = Math.max(h, THIGH * Math.cos(P.hip[i]) + SHIN * Math.cos(P.hip[i] + P.knee[i]));
+    this.bobY = mode === 'air' ? 0 : (h - LEG) * (this.scale || 1) + r * a * 0.05 * Math.abs(Math.cos(ph));
   }
 
   collide(world) {

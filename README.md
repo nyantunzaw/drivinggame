@@ -54,8 +54,8 @@ Gamepads are supported too.
   with roof signs, 90s Mark II sedans, Hiace vans, Hilux "lain-ka" line-cars with benches and
   a canopy over the bed, YBS city buses and, on the downtown side streets, pedal-powered
   sai-ka trishaws. Cars line the kerbs, two wheels up on the pavement on the narrow streets.
-  Bodies have real silhouettes and wheel arches, reflective paint, glass and chrome, and
-  alloy wheels.
+  Bodies are smooth lofted shells (rounded noses and tails, tumblehome, wheel arches, a
+  glasshouse with proper pillars) with reflective paint, glass and chrome, and alloy wheels.
 - **Buildings** use a painted facade atlas: colonial stucco, 1960s–80s apartment blocks with
   balconies, laundry and AC units, glass towers, brick, and Chinatown shophouses. Ground floors
   facing a street are shops (signboards, half-open shutters, goods inside, lit at night);
@@ -71,8 +71,10 @@ Gamepads are supported too.
 - **Divided roads** (Maha Bandula, Bogyoke Aung San, Strand, Pyay Road...) have a kerbed central
   island with black-and-yellow kerbs, a steel railing and double-arm street lamps, with gaps
   where side streets cross. It is solid, so cars can't drive through it.
-- Pedestrians in longyi and monks in maroon robes, a day–night cycle with neon sunsets,
-  lit windows at night, and floodlit golden pagodas.
+- People with jointed bodies that walk, run and punch with bending knees and elbows, faces
+  and a range of skin tones: men in longyi and flip-flops, women in htamein with thanaka on
+  their cheeks and flowers in their hair, monks in maroon robes, khaki-uniformed police.
+- A day–night cycle with neon sunsets, lit windows at night, and floodlit golden pagodas.
 - Three procedurally generated radio stations (synthwave, electro, and a pentatonic chill station),
   plus engine, tyre, horn and siren sounds. All audio is synthesized, with no sound files.
 - Districts announce themselves as you cross real township boundaries (Kyauktada, Pabedan,
@@ -82,7 +84,8 @@ Gamepads are supported too.
 
 Built for mid-range phones: the city streams in 250 m tiles that are built in small time
 slices, every tile is merged into a handful of draw calls, all cars and people are
-GPU-instanced, and resolution adapts to keep the frame rate up. Quality presets
+GPU-instanced (with lighter models in the distance), and resolution adapts to keep the frame
+rate up. Quality presets
 (Low / Medium / High) are in Settings; phones default to Medium.
 
 ## Map data pipeline

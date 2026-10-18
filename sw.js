@@ -1,5 +1,5 @@
 // Offline cache: the game is static files, so cache-first with background refresh.
-const CACHE = 'yangon-vice-v4';
+const CACHE = 'yangon-vice-v5';
 const CORE = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'data/yangon.json', 'data/radar.webp', 'data/shops.json', 'vendor/three.module.min.js',
   'icons/icon-192.png', 'icons/icon-512.png',

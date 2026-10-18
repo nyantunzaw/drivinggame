@@ -729,7 +729,7 @@ class Game {
     vr.begin(this.time, this.sky.night, this.sky.daylight);
     for (const v of this.vehicles) vr.add(v, this.camera.position);
     vr.end();
-    hr.begin();
+    hr.begin(this.camera);
     for (const h of this.humans()) hr.add(h);
     hr.end();
     this.renderer.render(this.scene, this.camera);
