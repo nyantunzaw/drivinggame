@@ -71,17 +71,21 @@ export class GfxGuard {
     const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
     if (w < 8 || h < 8) return null;
     if (!this.buf || this.buf.length < w * 4) this.buf = new Uint8Array(w * 4);
-    const mn = [255, 255, 255], mx = [0, 0, 0];
+    // Flat = nearly every sample has the same colour (a few clouds or sprites may still
+    // draw over a broken frame). A real view of the city never comes close.
+    const counts = new Map();
+    let n = 0, top = 0;
     for (const fy of [0.2, 0.5, 0.8]) {
       gl.readPixels(0, Math.floor(h * fy), w, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.buf);
       for (let x = 0; x < w; x += 5) {
-        for (let c = 0; c < 3; c++) {
-          const v = this.buf[x * 4 + c];
-          if (v < mn[c]) mn[c] = v;
-          if (v > mx[c]) mx[c] = v;
-        }
+        const i = x * 4;
+        const key = ((this.buf[i] >> 4) << 8) | ((this.buf[i + 1] >> 4) << 4) | (this.buf[i + 2] >> 4);
+        const c = (counts.get(key) || 0) + 1;
+        counts.set(key, c);
+        if (c > top) top = c;
+        n++;
       }
     }
-    return mx[0] - mn[0] < 10 && mx[1] - mn[1] < 10 && mx[2] - mn[2] < 10;
+    return top / n > 0.92;
   }
 }
