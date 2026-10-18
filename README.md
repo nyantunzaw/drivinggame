@@ -61,9 +61,16 @@ Gamepads are supported too.
   facing a street are shops (signboards, half-open shutters, goods inside, lit at night);
   rooftops carry water tanks, stair huts and satellite dishes. The City Hall, the Secretariat,
   the High Court, Central Station and The Strand get their own heritage treatments.
-- **Chinatown (Latha)** has Chinese and Burmese shop signs, vertical blade signs, red lanterns
-  strung across the streets, tangled power lines, the 19th Street barbecue stalls, and the
-  Kheng Hock Keong and Kwan Yin temples.
+- **Chinatown (Latha)**: between Lanmadaw Road and Latha Road every listed business is the real
+  one, in its real place: about 300 shops, restaurants, gold shops, phone shops, hotels, banks
+  and clinics from the Overture Maps places data, each on its own frontage with its real name
+  on the signboard (Burmese, Chinese and English as listed) and a shopfront dressed for its
+  trade: tea-shop stools, glowing gold-shop counters, garment rails, pharmacy crosses, hotel
+  canopies. Upstairs clinics and schools hang banners on the first floor. Red lanterns, power
+  lines, the 19th Street barbecue stalls and the Kheng Hock Keong and Kwan Yin temples too.
+- **Divided roads** (Maha Bandula, Bogyoke Aung San, Strand, Pyay Road...) have a kerbed central
+  island with black-and-yellow kerbs, a steel railing and double-arm street lamps, with gaps
+  where side streets cross. It is solid, so cars can't drive through it.
 - Pedestrians in longyi and monks in maroon robes, a day–night cycle with neon sunsets,
   lit windows at night, and floodlit golden pagodas.
 - Three procedurally generated radio stations (synthwave, electro, and a pentatonic chill station),
@@ -88,6 +95,8 @@ GPU-instanced, and resolution adapts to keep the frame rate up. Quality presets
 pip install pyarrow shapely numpy pillow
 python tools/fetch_overture.py tools/raw        # downloads only the Yangon bounding box
 python tools/build_map.py tools/raw data/yangon.json
+pip install python-myanmar myanmartools          # Zawgyi -> Unicode for Burmese shop names
+python tools/build_shops.py tools/raw data/shops.json
 ```
 
 World units are metres with the origin at Sule Pagoda (+x east, +z south). Building heights
@@ -102,6 +111,7 @@ src/world/                   terrain, tile streaming, landmarks, sky, collision
 src/vehicles/                car models, instanced renderer, arcade physics
 src/humans/                  people models + instanced renderer
 src/facades.js               procedural facade atlas and shop-sign textures
+src/world/shops.js           real Chinatown shopfronts; src/world/medians.js road dividers
 src/ai/                      road graph + A*, traffic, parked cars, pedestrians, police
 src/missions.js              missions, taxi fares, collectibles, pickups
 src/audio.js                 synthesized engine, SFX and radio

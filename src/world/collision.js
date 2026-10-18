@@ -14,6 +14,7 @@ export class CollisionWorld {
     this.circles = [];      // {x,z,r} (all, for debugging)
     this.circleGrid = new Map(); // cell -> circles (street furniture, landmarks)
     this.boxes = [];        // oriented boxes {x,z,hx,hz,c,s}
+    this.boxGrid = new Map(); // cell -> boxes (landmark walls, road medians)
     this._buildEdges();
     this._buildWater();
     this._stamp = 1;
@@ -208,7 +209,20 @@ export class CollisionWorld {
 
   // Oriented box collider (angle in radians around Y).
   addBox(x, z, hx, hz, angle = 0) {
-    this.boxes.push({ x, z, hx, hz, c: Math.cos(angle), s: Math.sin(angle) });
+    const b = { x, z, hx, hz, c: Math.cos(angle), s: Math.sin(angle), st: 0 };
+    this.boxes.push(b);
+    const ex = Math.abs(b.c) * hx + Math.abs(b.s) * hz, ez = Math.abs(b.s) * hx + Math.abs(b.c) * hz;
+    const cx0 = Math.floor((x - ex - this.x0) / CELL), cx1 = Math.floor((x + ex - this.x0) / CELL);
+    const cz0 = Math.floor((z - ez - this.z0) / CELL), cz1 = Math.floor((z + ez - this.z0) / CELL);
+    for (let cz = cz0; cz <= cz1; cz++) {
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const k = cz * this.nx + cx;
+        let list = this.boxGrid.get(k);
+        if (!list) { list = []; this.boxGrid.set(k, list); }
+        list.push(b);
+      }
+    }
+    return b;
   }
 
   // Index of building containing point, or -1.
@@ -287,27 +301,35 @@ export class CollisionWorld {
         }
       }
     }
-    for (const b of this.boxes) {
-      // to box local space
-      const lx = (x - b.x) * b.c + (z - b.z) * b.s;
-      const lz = -(x - b.x) * b.s + (z - b.z) * b.c;
-      const qx = Math.max(-b.hx, Math.min(b.hx, lx));
-      const qz = Math.max(-b.hz, Math.min(b.hz, lz));
-      let dx = lx - qx, dz = lz - qz;
-      const d2 = dx * dx + dz * dz;
-      if (d2 < r * r) {
-        let nx, nz, pen;
-        if (d2 > 1e-8) {
-          const d = Math.sqrt(d2);
-          nx = dx / d; nz = dz / d; pen = r - d;
-        } else {
-          // centre inside the box: exit along the shallowest axis
-          const ox = b.hx - Math.abs(lx), oz = b.hz - Math.abs(lz);
-          if (ox < oz) { nx = Math.sign(lx) || 1; nz = 0; pen = ox + r; } else { nx = 0; nz = Math.sign(lz) || 1; pen = oz + r; }
+    for (let cz = cz0; cz <= cz1; cz++) {
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const list = this.boxGrid.get(cz * this.nx + cx);
+        if (!list) continue;
+        for (const b of list) {
+          if (b.st === stamp) continue;
+          b.st = stamp;
+          // to box local space
+          const lx = (x - b.x) * b.c + (z - b.z) * b.s;
+          const lz = -(x - b.x) * b.s + (z - b.z) * b.c;
+          const qx = Math.max(-b.hx, Math.min(b.hx, lx));
+          const qz = Math.max(-b.hz, Math.min(b.hz, lz));
+          let dx = lx - qx, dz = lz - qz;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < r * r) {
+            let nx, nz, pen;
+            if (d2 > 1e-8) {
+              const d = Math.sqrt(d2);
+              nx = dx / d; nz = dz / d; pen = r - d;
+            } else {
+              // centre inside the box: exit along the shallowest axis
+              const ox = b.hx - Math.abs(lx), oz = b.hz - Math.abs(lz);
+              if (ox < oz) { nx = Math.sign(lx) || 1; nz = 0; pen = ox + r; } else { nx = 0; nz = Math.sign(lz) || 1; pen = oz + r; }
+            }
+            const wx = nx * b.c - nz * b.s, wz = nx * b.s + nz * b.c;
+            x += wx * pen; z += wz * pen;
+            out.nx += wx; out.nz += wz; out.depth = Math.max(out.depth, pen); out.hit = true;
+          }
         }
-        const wx = nx * b.c - nz * b.s, wz = nx * b.s + nz * b.c;
-        x += wx * pen; z += wz * pen;
-        out.nx += wx; out.nz += wz; out.depth = Math.max(out.depth, pen); out.hit = true;
       }
     }
     if (out.hit) {

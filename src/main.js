@@ -17,6 +17,7 @@ import { HumanRenderer } from './humans/renderer.js';
 import { Vehicle } from './vehicles/vehicle.js';
 import { Traffic } from './ai/traffic.js';
 import { Parked } from './ai/parked.js';
+import { loadShops, buildShopFronts } from './world/shops.js';
 import { Peds } from './ai/peds.js';
 import { Police } from './ai/police.js';
 import { AIDriver } from './ai/driver.js';
@@ -107,8 +108,16 @@ class Game {
     this.chunks = new ChunkManager(this.scene, this.map, this.mats, this.quality, {
       core: this.inCore, china, collision: this.collision,
     });
+    // real Chinatown shops (Overture Maps places) on their own frontages
+    const shops = await loadShops('data/shops.json');
+    if (shops.length) {
+      const fronts = await buildShopFronts(shops, this.map, this.collision, (x, z) => this.chunks.cellAt(x, z), this.mats, this.quality);
+      this.chunks.setShops(fronts);
+      if (gfxOff.has('detail')) this.mats.shopSigns.visible = false;
+      if (/debug/.test(location.search)) console.log('shops placed', fronts.placed, 'of', shops.length);
+    }
     this.progress(0.6, 'Filling the lakes…'); await nextFrame();
-    this.static = buildStatic(this.scene, this.map, this.mats, this.quality);
+    this.static = buildStatic(this.scene, this.map, this.mats, this.quality, { core });
     this.progress(0.68, 'Gilding the pagodas…'); await nextFrame();
     buildLandmarks(this.scene, this.map, this.mats, this.collision, this.chunks);
     this.sky = new Sky(this.scene, this.quality);
@@ -277,7 +286,7 @@ class Game {
     const M = this.mats;
     if (id === 'facade' && M) M.useSimpleFacade();
     if (id === 'pbr' && this.vrender) this.vrender.setPBR(false);
-    if (id === 'detail' && M) { M.signs.visible = false; M.wires.visible = false; M.pool.visible = false; }
+    if (id === 'detail' && M) { M.signs.visible = false; M.wires.visible = false; M.pool.visible = false; if (M.shopSigns) M.shopSigns.visible = false; }
     if (id === 'shadows' && this.renderer.shadowMap.enabled) {
       this.renderer.shadowMap.enabled = false;
       this.quality.shadows = false;

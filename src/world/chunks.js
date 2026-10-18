@@ -7,6 +7,8 @@ import { hash1, hash2, pointInPoly } from '../util.js';
 import { Geo } from './geo.js';
 import { TEMPLATES } from './props.js';
 import { STYLE, signUV } from '../facades.js';
+import { shopfront } from './shops.js';
+import { findMedians } from './medians.js';
 
 // Real-world inspired palettes: faded colonial stucco, Chinatown pastels, concrete.
 const DOWNTOWN = ['#efe4cf', '#e9d9b8', '#dfe6dc', '#e8d2c8', '#d8dfe6', '#efe9de', '#e6dcb0', '#d9cbb5', '#f2e8d8', '#cfe0da'];
@@ -27,6 +29,7 @@ function col(hex) {
   return c;
 }
 const SHOP_STYLES = new Set([ST.colonial, ST.apartment, ST.chinaA, ST.chinaB, ST.office]);
+const MEDIAN = { top: col('#a9a59b'), yellow: col('#e8b923'), black: col('#1f1f1f'), rail: col('#3d8a5a'), mesh: col('#5f9e76') };
 
 export class ChunkManager {
   constructor(scene, map, mats, quality, ctx) {
@@ -42,13 +45,19 @@ export class ChunkManager {
     this.gx0 = x0; this.gz0 = z0;
     this.nx = Math.ceil((x1 - x0) / CHUNK);
     this.nz = Math.ceil((z1 - z0) / CHUNK);
-    this.cells = Array.from({ length: this.nx * this.nz }, () => ({ b: [], r: [], t: [], n: [], stalls: [] }));
+    this.cells = Array.from({ length: this.nx * this.nz }, () => ({ b: [], r: [], t: [], n: [], stalls: [], med: [], medLamps: [] }));
     this.loaded = new Map();
     this.stupaSet = new Set();
     this._index();
   }
 
   key(cx, cz) { return cz * this.nx + cx; }
+
+  // Real shopfronts (see shops.js): per-building frontage list and the street strip they cover.
+  setShops(data) {
+    this.shopFronts = data.byBuilding;
+    this.shopStrip = data.strip;
+  }
 
   cellAt(x, z) {
     const cx = Math.floor((x - this.gx0) / CHUNK), cz = Math.floor((z - this.gz0) / CHUNK);
@@ -89,6 +98,19 @@ export class ChunkManager {
       if (this.deg[i] < 2) continue;
       const c = this.cellAt(m.nodeX[i], m.nodeZ[i]);
       if (c) c.n.push(i);
+    }
+    // central dividers on divided roads (Maha Bandula, Strand, Pyay Road...), solid to cars
+    this.medianCount = 0;
+    const medians = findMedians(m, this.deg);
+    for (const lp of medians.lamps) { const c = this.cellAt(lp[0], lp[1]); if (c) c.medLamps.push(lp); }
+    for (const sg of medians.segs) {
+      const mx = (sg[0] + sg[2]) / 2, mz = (sg[1] + sg[3]) / 2;
+      const L = Math.hypot(sg[2] - sg[0], sg[3] - sg[1]);
+      if (L < 0.2) continue;
+      const c = this.cellAt(mx, mz);
+      if (c) c.med.push(sg);
+      if (this.collision) this.collision.addBox(mx, mz, L / 2 + 0.05, sg[4] / 2, Math.atan2(sg[3] - sg[1], sg[2] - sg[0]));
+      this.medianCount++;
     }
     this._stalls();
     const keep = this.quality.trees;
@@ -222,8 +244,10 @@ export class ChunkManager {
     group.name = `chunk-${cx}-${cz}`;
     const bGeo = new Geo();
     const sGeo = new Geo({ color: false });
+    const pGeo = new Geo({ uv: false, glow: true });
+    const shopGeo = new Geo({ color: false });
     let n = 0;
-    for (const i of cell.b) { this.building(bGeo, sGeo, i); if (++n % 30 === 0) yield; }
+    for (const i of cell.b) { this.building(bGeo, sGeo, i, pGeo, shopGeo); if (++n % 30 === 0) yield; }
     if (!bGeo.empty) {
       const mesh = new THREE.Mesh(bGeo.build(), this.mats.building);
       mesh.castShadow = this.quality.shadows;
@@ -231,15 +255,17 @@ export class ChunkManager {
       group.add(mesh);
     }
     if (!sGeo.empty) group.add(new THREE.Mesh(sGeo.build(), this.mats.signs));
+    if (!shopGeo.empty && this.mats.shopSigns) group.add(new THREE.Mesh(shopGeo.build(), this.mats.shopSigns));
     yield;
     this._wires = [];
     const rGeo = new Geo();
     const mGeo = new Geo();
-    const pGeo = new Geo({ uv: false, glow: true });
     const poolGeo = new Geo({ color: false });
     n = 0;
     for (const [e, s0, s1] of cell.r) { this.road(rGeo, mGeo, pGeo, poolGeo, e, s0, s1); if (++n % 30 === 0) yield; }
     for (const nd of cell.n) this.nodeDisc(rGeo, nd);
+    for (const sg of cell.med) this.median(pGeo, sg);
+    if (this.detail) for (const lp of cell.medLamps) this.medianLamp(pGeo, poolGeo, lp);
     yield;
     n = 0;
     for (const i of cell.t) { this.tree(pGeo, i); if (++n % 60 === 0) yield; }
@@ -270,7 +296,7 @@ export class ChunkManager {
     return group;
   }
 
-  building(G, S, i) {
+  building(G, S, i, P, R) {
     const m = this.map;
     const ring = m.buildingRing(i);
     const n = ring.length / 2;
@@ -310,6 +336,9 @@ export class ChunkManager {
     const pitched = (type === 1 || type === 3 || (h < 7.5 && !core)) && area < 260 && n <= 8;
     const parapet = !pitched && h > 5 && style !== ST.glass;
     const detail = this.detail;
+    // real shops on this building (Chinatown strip) replace the made-up signs there
+    const fronts = this.shopFronts ? this.shopFronts.get(i) : null;
+    const strip = this.shopStrip ? this.shopStrip(cx, cz) : false;
 
     let per = 0, longest = 0, ang = 0;
     for (let k = 0; k < n; k++) {
@@ -327,6 +356,14 @@ export class ChunkManager {
       const front = rc > 0;
       let wStyle = style;
       if (!front && core && !heritage && style !== ST.glass && style !== ST.office) wStyle = ST.blank;
+
+      const real = front && fronts ? fronts.filter((f) => f.k === k) : null;
+      if (real && real.length) {
+        let seed = i * 977 + k * 31;
+        const rnd = () => hash1(seed++);
+        for (const f of real) shopfront(G, P, R, ax, az, dx / L, dz / L, nx, nz, f, ground, h, detail, rnd);
+      }
+      const taken = (t0, t1) => real && real.some((f) => !f.shop.up && f.t0 < t1 * L && f.t1 > t0 * L);
 
       // town frontages are split into individual shophouses with their own paint
       let segs = 1;
@@ -354,13 +391,14 @@ export class ChunkManager {
           wallQuad(G, sx1, sz1, sx0, sz0, yt, yt + ph, -nx, -nz, 0, 0, -1, -1, c, 0.55, 0.6);
         }
         if (detail && front && SHOP_STYLES.has(sStyle) && (core || rc <= 3) && h >= 4) {
-          if (hash1(i * 57 + k * 7 + q) < (china ? 0.55 : core ? 0.35 : 0.12) && segLen > 2.2) {
+          const own = taken(t0, t1);
+          if (!own && hash1(i * 57 + k * 7 + q) < (china ? 0.55 : core ? 0.35 : 0.12) && segLen > 2.2) {
             awning(G, sx0, sz0, sx1, sz1, nx, nz, ground, col(AWNINGS[(hash1(i * 5 + q) * AWNINGS.length) | 0]));
           }
-          if (hash1(i * 73 + k * 5 + q) < (china ? 0.85 : core ? 0.4 : 0.15) && segLen > 2.4 && h > 4.5) {
+          if (!strip && hash1(i * 73 + k * 5 + q) < (china ? 0.85 : core ? 0.4 : 0.15) && segLen > 2.4 && h > 4.5) {
             hSign(S, sx0, sz0, sx1, sz1, nx, nz, ground, (hash1(i * 37 + q) * 16) | 0);
           }
-          if (hash1(i * 91 + k * 3 + q) < (china ? 0.5 : core ? 0.12 : 0) && h > 7) {
+          if (!strip && hash1(i * 91 + k * 3 + q) < (china ? 0.5 : core ? 0.12 : 0) && h > 7) {
             vSign(S, sx0, sz0, sx1, sz1, nx, nz, ground, (hash1(i * 43 + q) * 16) | 0, hash1(i + q) < 0.5);
           }
         }
@@ -538,7 +576,13 @@ export class ChunkManager {
       if (m1 - m0 > 3) {
         const mp = this.slice(e, m0, m1);
         const yellow = [0.95, 0.7, 0.08], white = [0.95, 0.95, 0.95];
-        if (cls <= 1 && !e.oneway) {
+        if (e.median && cls <= 2) {
+          // divided road: lane line, white edge on the kerb side, yellow edge along the island
+          const md = e.median;
+          markLine(M, mp, 0, 0.09, white, m0, true);
+          markLine(M, mp, -md.side * (hw - 0.5), 0.09, white, m0, false);
+          if (md.dist > 1.6) markLine(M, mp, md.side * (md.dist - 0.95), 0.08, yellow, m0, false);
+        } else if (cls <= 1 && !e.oneway) {
           markLine(M, mp, 0.2, 0.08, yellow, m0, false);
           markLine(M, mp, -0.2, 0.08, yellow, m0, false);
           markLine(M, mp, hw - 0.5, 0.09, white, m0, false);
@@ -561,7 +605,7 @@ export class ChunkManager {
         const p = this.pointAt(e, s), q = this.pointAt(e, Math.min(e.len, s + 1));
         const dx = q[0] - p[0], dz = q[1] - p[1];
         const L = Math.hypot(dx, dz) || 1;
-        const side = (Math.round(s / spacing) % 2) ? 1 : -1;
+        const side = e.median ? -e.median.side : (Math.round(s / spacing) % 2) ? 1 : -1;
         const nx = (-dz / L) * side, nz = (dx / L) * side;
         const off = hw + Math.max(0.6, sw * 0.4);
         const x = p[0] + nx * off, z = p[1] + nz * off;
@@ -586,6 +630,65 @@ export class ChunkManager {
       const china = this.china(mid[0], mid[1]);
       if (china || this.core(mid[0], mid[1])) this.powerLines(P, e, s0, s1, hw, sw);
       if (china && cls >= 3) this.lanterns(P, e, s0, s1, hw, sw);
+    }
+  }
+
+  // Kerbed central island: concrete top, black-and-yellow painted kerb faces and a steel
+  // railing with mesh panels. Pieces are straight runs of up to 30 m.
+  median(P, sg) {
+    const [x0, z0, x1, z1, w] = sg;
+    const dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz);
+    if (L < 0.2) return;
+    const tx = dx / L, tz = dz / L, nx = -tz, nz = tx;
+    const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
+    const y = heightAt(mx, mz) + 0.09, H = 0.22;
+    const ang = Math.atan2(-tz, tx); // gbox local x runs along the island
+    gbox(P, mx, y, mz, L + 0.04, H, w, ang, MEDIAN.top);
+    // kerb faces painted in 1.2 m bands (continuous along the road, so pieces line up)
+    const s0 = x0 * tx + z0 * tz;
+    const k0 = Math.floor(s0 / 1.2), k1 = Math.ceil((s0 + L) / 1.2);
+    for (const sd of [-1, 1]) {
+      const ox = nx * sd * (w / 2 + 0.006), oz = nz * sd * (w / 2 + 0.006);
+      const fnx = nx * sd, fnz = nz * sd;
+      for (let k = k0; k < k1; k++) {
+        const a = Math.max(0, k * 1.2 - s0), b = Math.min(L, (k + 1) * 1.2 - s0);
+        if (b - a < 0.02) continue;
+        const c = (k & 1) ? MEDIAN.yellow : MEDIAN.black;
+        const ax = x0 + tx * a + ox, az = z0 + tz * a + oz, bx = x0 + tx * b + ox, bz = z0 + tz * b + oz;
+        const v = P.v(ax, y, az, fnx, 0, fnz, 0, 0, c[0], c[1], c[2], 0);
+        P.v(bx, y, bz, fnx, 0, fnz, 0, 0, c[0], c[1], c[2], 0);
+        P.v(bx, y + H, bz, fnx, 0, fnz, 0, 0, c[0], c[1], c[2], 0);
+        P.v(ax, y + H, az, fnx, 0, fnz, 0, 0, c[0], c[1], c[2], 0);
+        // face outward: (b - a) x up must point along the face normal
+        if ((bx - ax) * -fnz + (bz - az) * fnx > 0) P.quad(v, v + 3, v + 2, v + 1); else P.quad(v, v + 1, v + 2, v + 3);
+      }
+    }
+    if (!this.detail) return;
+    const posts = Math.max(1, Math.round(L / 3));
+    for (let q = 0; q <= posts; q++) {
+      const a = (q / posts) * L;
+      gbox(P, x0 + tx * a, y + H, z0 + tz * a, 0.07, 1.05, 0.07, ang, MEDIAN.rail);
+    }
+    gbox(P, mx, y + H + 0.98, mz, L, 0.07, 0.06, ang, MEDIAN.rail);
+    gbox(P, mx, y + H + 0.15, mz, L, 0.8, 0.02, ang, MEDIAN.mesh); // wire mesh panels
+  }
+
+  // Double-arm lamp post on the island, lighting both carriageways.
+  medianLamp(P, POOL, lp) {
+    const [x, z, tx, tz] = lp;
+    const nx = -tz, nz = tx;
+    const g0 = heightAt(x, z);
+    for (const sd of [-1, 1]) {
+      const ax = nx * sd, az = nz * sd; // arm reaches out over each carriageway
+      P.addTemplate(TEMPLATES.lamp, x, g0 + 0.3, z, Math.atan2(-az, ax), 1);
+      const lx = x + ax * 2.6, lz = z + az * 2.6;
+      const S = 5.5, yy = heightAt(lx, lz) + 0.14;
+      const b = POOL.count;
+      POOL.v(lx - S, yy, lz - S, 0, 1, 0, 0, 0);
+      POOL.v(lx + S, yy, lz - S, 0, 1, 0, 1, 0);
+      POOL.v(lx + S, yy, lz + S, 0, 1, 0, 1, 1);
+      POOL.v(lx - S, yy, lz + S, 0, 1, 0, 0, 1);
+      POOL.tri(b, b + 2, b + 1); POOL.tri(b, b + 3, b + 2);
     }
   }
 
@@ -752,7 +855,7 @@ function gcone(G, x, y, z, r, h, seg, c, glow = 0, uvY = -1) {
   }
 }
 
-export { gbox, gcyl, gcone, wallQuad };
+export { gbox, gcyl, gcone, wallQuad, awning };
 
 // Road ribbon with mitred joins. World-space UVs so overlapping roads blend seamlessly.
 export function ribbon(G, pts, hw, lift, _u, _v, color, worldUV) {

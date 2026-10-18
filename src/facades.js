@@ -150,11 +150,11 @@ function glass(a, x, y, w, h, rnd) {
 
 // Ground-floor shop: signboard, roll-up shutter, goods inside.
 function shop(a, e, rnd, x, y, w, h, opt = {}) {
-  const sign = opt.sign || pick(rnd, SIGN_BG);
-  rect(a, x + 6, y + 8, w - 12, 26, sign);
-  rect(a, x + 6, y + 32, w - 12, 3, 'rgba(0,0,0,0.35)');
-  glyphs(a, rnd, x + 12, y + 11, w - 24, 20, sign === '#f2f2ee' || sign === '#e8b923' ? '#b3201c' : '#ffe08a', rnd() < (opt.han ?? 0.5) ? 'han' : 'my');
-  lit(e, rnd, x + 6, y + 8, w - 12, 26, 0.7, [sign, '#ffdd88', '#ff7f7f']);
+  // roll-up shutter housing above the opening (real signs are separate 3D boards)
+  const housing = pick(rnd, ['#8d9296', '#7f858a', '#9aa0a4', '#6f7478']);
+  rect(a, x + 6, y + 10, w - 12, 24, housing);
+  rect(a, x + 6, y + 10, w - 12, 3, 'rgba(255,255,255,0.22)');
+  rect(a, x + 6, y + 31, w - 12, 4, 'rgba(0,0,0,0.35)');
   const top = y + 38, bh = h - 38;
   const open = rnd() < 0.8;
   const closed = open ? bh * (0.12 + rnd() * 0.25) : bh;
@@ -476,3 +476,5 @@ export function signUV(kind, i) {
   const x = i * 64, y = 512;
   return [x / 1024, 1 - (y + 512) / 1024, (x + 64) / 1024, 1 - y / 1024];
 }
+
+export { makeCanvas, tex, HAN_FONT, MY_FONT, LAT_FONT, fontFor };

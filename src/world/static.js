@@ -47,7 +47,7 @@ function polygonsMesh(list, lift, material) {
   return new THREE.Mesh(G.build(), material);
 }
 
-export function buildStatic(scene, map, mats, quality) {
+export function buildStatic(scene, map, mats, quality, opts = {}) {
   const group = new THREE.Group();
   const { x0, z0, x1, z1 } = map.bounds;
 
@@ -102,6 +102,32 @@ export function buildStatic(scene, map, mats, quality) {
   const hill = new THREE.Mesh(H.build(), hillMat);
   hill.receiveShadow = quality.shadows;
   group.add(hill);
+
+  // Downtown: paved ground between the streets and the shopfronts (no grass verges).
+  // South edge follows Strand Road so the riverbank stays open.
+  if (opts.core) {
+    const c = opts.core;
+    const xs = [], zs = [];
+    for (let i = 0; i < c.length; i += 2) { xs.push(c[i]); zs.push(c[i + 1]); }
+    const cx0 = Math.min(...xs), cx1 = Math.max(...xs), zN = Math.min(...zs), zS = Math.max(...zs);
+    const strand = new Map();
+    for (const e of map.edges) {
+      if (e.name !== 'Strand Road') continue;
+      for (let i = 0; i < e.pts.length; i += 2) {
+        const x = e.pts[i], z = e.pts[i + 1];
+        if (x < cx0 - 40 || x > cx1 + 40) continue;
+        const b = Math.round(x / 25);
+        strand.set(b, Math.min(strand.get(b) ?? Infinity, z));
+      }
+    }
+    const south = [...strand.entries()].sort((p, q) => q[0] - p[0]).map(([b, z]) => [b * 25, Math.min(z, zS)]);
+    if (south.length > 4) {
+      const ring = [cx0, zN, cx1, zN];
+      for (const [x, z] of south) if (x > cx0 && x < cx1) ring.push(x, z);
+      const m = polygonsMesh([[ring]], 0.015, mats.pavement);
+      if (m) { m.receiveShadow = quality.shadows; group.add(m); }
+    }
+  }
 
   // Parks, pitches, forests, plazas
   const byType = [[], [], [], []];

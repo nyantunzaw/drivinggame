@@ -103,6 +103,9 @@ export async function createMaterials(renderer, qualityName = 'high', opts = {})
   M.forest = new THREE.MeshLambertMaterial({ map: T.grassTexture(), color: 0x9bbf8a, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
   M.pitch = new THREE.MeshLambertMaterial({ map: T.grassTexture(), color: 0xc8ffb0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
   M.plaza = new THREE.MeshLambertMaterial({ map: T.plazaTexture(), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
+  // downtown is paved from kerb to shopfront: worn concrete instead of open ground
+  const paveTex = T.sidewalkTexture();
+  M.pavement = new THREE.MeshLambertMaterial({ map: paveTex, color: 0xb9b4aa, polygonOffset: true, polygonOffsetFactor: -0.5, polygonOffsetUnits: -1 });
 
   const wn = T.waterNormalTexture();
   M.water = new THREE.MeshPhongMaterial({
@@ -150,6 +153,7 @@ export async function createMaterials(renderer, qualityName = 'high', opts = {})
   M.setNight = (night, daylight) => {
     M.building.emissiveIntensity = night * 0.95;
     M.signs.emissiveIntensity = 0.08 + night * 1.1;
+    if (M.shopSigns) M.shopSigns.emissiveIntensity = 0.08 + night * 1.1;
     M.propsNight.value = night;
     M.pool.opacity = night * 0.55;
     M.gold.emissiveIntensity = night * 0.55;
