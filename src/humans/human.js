@@ -16,6 +16,41 @@ const LEG = THIGH + SHIN;
 
 const res = { x: 0, z: 0, nx: 0, nz: 0, hit: false, depth: 0 };
 
+// Clothes, skin and height for a kind of person: 'ped', 'monk', 'cop', 'player', or
+// 'driver' (behind a wheel: men in longyi or trousers).
+export function randomLook(kind) {
+  const lin = (h) => new THREE.Color(h);
+  const L = { skin: lin(pick(SKINS)), scale: 0.95 + Math.random() * 0.09 };
+  if (kind === 'monk') {
+    L.variant = 'monk';
+    L.shirt = lin(ROBE);
+    L.lower = lin('#7a2419');
+  } else if (kind === 'cop') {
+    L.variant = 'cop';
+    L.shirt = lin('#c9b48a');   // khaki police uniform
+    L.lower = lin('#3b3a33');
+  } else if (kind === 'player') {
+    L.variant = 'longyi';
+    L.shirt = lin('#ff4fa3');   // loud Vice-City-pink shirt
+    L.lower = lin('#2b3f73');
+    L.skin = lin('#c08a5f');
+    L.scale = 1;
+  } else {
+    const r = kind === 'driver' ? 0.4 + Math.random() * 0.6 : Math.random();
+    if (r < 0.4) {
+      L.variant = 'htamein';
+      L.shirt = lin(pick(BLOUSE));
+      L.lower = lin(pick(HTAMEIN));
+      L.scale *= 0.94;
+    } else {
+      L.variant = r < 0.78 ? 'longyi' : 'pants';
+      L.shirt = lin(pick(SHIRTS));
+      L.lower = lin(L.variant === 'longyi' ? pick(LONGYI) : pick(PANTS));
+    }
+  }
+  return L;
+}
+
 export class Human {
   constructor(kind = 'ped', x = 0, z = 0) {
     this.kind = kind;
@@ -44,36 +79,7 @@ export class Human {
   }
 
   setLook(kind) {
-    const lin = (h) => new THREE.Color(h);
-    this.skin = lin(pick(SKINS));
-    this.scale = 0.95 + Math.random() * 0.09;
-    if (kind === 'monk') {
-      this.variant = 'monk';
-      this.shirt = lin(ROBE);
-      this.lower = lin('#7a2419');
-    } else if (kind === 'cop') {
-      this.variant = 'cop';
-      this.shirt = lin('#c9b48a');   // khaki police uniform
-      this.lower = lin('#3b3a33');
-    } else if (kind === 'player') {
-      this.variant = 'longyi';
-      this.shirt = lin('#ff4fa3');   // loud Vice-City-pink shirt
-      this.lower = lin('#2b3f73');
-      this.skin = lin('#c08a5f');
-      this.scale = 1;
-    } else {
-      const r = Math.random();
-      if (r < 0.4) {
-        this.variant = 'htamein';
-        this.shirt = lin(pick(BLOUSE));
-        this.lower = lin(pick(HTAMEIN));
-        this.scale *= 0.94;
-      } else {
-        this.variant = r < 0.78 ? 'longyi' : 'pants';
-        this.shirt = lin(pick(SHIRTS));
-        this.lower = lin(this.variant === 'longyi' ? pick(LONGYI) : pick(PANTS));
-      }
-    }
+    Object.assign(this, randomLook(kind));
   }
 
   get alive() { return this.state !== 'dead'; }

@@ -16,19 +16,23 @@ export const VEHICLE_TYPES = {
   taxi: {
     name: 'Probox Taxi', len: 4.2, wid: 1.69, hgt: 1.5, mass: 1150, power: 8.0, top: 44, grip: 1.0,
     wheelR: 0.3, axles: [1.32, -1.2], colors: ['#f2f2f0', '#e6e7e8', '#c9cccf'], taxi: true, weight: 4,
+    seat: { x: -0.36, y: 0.55, z: -0.2, recline: 0.22 },
   },
   sedan: {
     name: 'Mark II', len: 4.76, wid: 1.76, hgt: 1.41, mass: 1350, power: 9.0, top: 52, grip: 1.02,
     wheelR: 0.31, axles: [1.45, -1.33], weight: 4,
+    seat: { x: -0.38, y: 0.5, z: -0.18, recline: 0.25 },
     colors: ['#f0f0ee', '#e6e6e4', '#b9bcc0', '#2a2b2e', '#5a1a1f', '#1f3550', '#8d8f93', '#c9b99a', '#3d4a3f'],
   },
   hiace: {
     name: 'Hiace Van', len: 4.7, wid: 1.69, hgt: 1.98, mass: 1650, power: 6.8, top: 40, grip: 0.95,
     wheelR: 0.3, axles: [1.55, -1.05], colors: ['#f2f2f0', '#e8e8e6', '#c9cccf', '#9fa4a8'], weight: 2,
+    seat: { x: -0.38, y: 0.95, z: 1.3, recline: 0.1 },
   },
   pickup: {
     name: 'Lain-Ka Pickup', len: 4.9, wid: 1.76, hgt: 2.05, mass: 1600, power: 6.8, top: 38, grip: 0.95,
     wheelR: 0.35, axles: [1.55, -1.45], colors: ['#2f6fb5', '#e8e8e8', '#b8352f', '#3a8a52', '#d9a03a', '#5a5f66'], weight: 2.5,
+    seat: { x: -0.38, y: 0.85, z: -0.02, recline: 0.15 },
   },
   bus: {
     name: 'YBS Bus', len: 10.6, wid: 2.5, hgt: 3.15, mass: 9000, power: 4.6, top: 27, grip: 0.9,
@@ -37,14 +41,18 @@ export const VEHICLE_TYPES = {
   sports: {
     name: 'Irrawaddy GT', len: 4.4, wid: 1.9, hgt: 1.2, mass: 1250, power: 14, top: 68, grip: 1.18,
     wheelR: 0.33, axles: [1.35, -1.3], colors: ['#ff3ea5', '#f4f4f4', '#38c8ff', '#ffc400', '#d62828'], weight: 0.35,
+    seat: { x: -0.4, y: 0.3, z: -0.35, recline: 0.45, feet: [-0.1, 0.8] },
   },
   police: {
     name: 'Police Cruiser', len: 4.6, wid: 1.74, hgt: 1.46, mass: 1400, power: 11, top: 58, grip: 1.1,
     wheelR: 0.31, axles: [1.38, -1.28], colors: ['#f4f4f2'], police: true, weight: 0,
+    seat: { x: -0.37, y: 0.5, z: -0.2, recline: 0.25 },
   },
   trishaw: {
     name: 'Sai-ka Trishaw', len: 2.0, wid: 1.5, hgt: 1.75, mass: 140, power: 1.5, top: 5.5, grip: 0.85,
     wheelR: 0.33, colors: ['#2f6fb5', '#3a8a52', '#b8352f', '#d9a03a', '#6b4fa0'], weight: 0, pedal: true,
+    // the rider sits on the saddle leaning forward; pedals turn about the crank
+    seat: { x: -0.38, y: 1.0, z: -0.24, recline: -0.45, bars: [1.12, 0.46], crank: [0.4, 0.06, 0.15] },
     wheels: [
       { x: -0.38, z: 0.62, r: 0.33, w: 0.05, steer: true },
       { x: -0.38, z: -0.5, r: 0.33, w: 0.05 },
@@ -68,10 +76,13 @@ const lin = (hex) => { tmp.set(hex); return [tmp.r, tmp.g, tmp.b]; };
 let LOD = 0; // 1 while building the lighter versions drawn for distant traffic
 
 // ---------------------------------------------------------------- mesh builder
-class Mesh {
-  constructor() { this.p = []; this.n = []; this.c = []; this.paint = []; this.surf = []; this.light = []; }
+const buf = () => ({ p: [], n: [], c: [], paint: [], surf: [], light: [] });
 
-  // Append a non-indexed geometry, classifying each triangle with fn(face) -> {color, paint, surf, light}
+class Mesh {
+  // two buffers: the opaque body, and see-through glass (drawn with a transparent material)
+  constructor() { this.bufs = [buf(), buf()]; }
+
+  // Append a non-indexed geometry, classifying each triangle with fn(face) -> {color, paint, surf, light, clear}
   add(geo, fn) {
     const P = geo.attributes.position.array, N = geo.attributes.normal.array;
     for (let i = 0; i < P.length; i += 9) {
@@ -83,13 +94,14 @@ class Mesh {
       nx /= l; ny /= l; nz /= l;
       const a = fn({ cx, cy, cz, nx, ny, nz, i: i / 9 });
       const col = typeof a.color === 'string' ? lin(a.color) : a.color;
+      const B = this.bufs[a.clear ? 1 : 0];
       for (let k = 0; k < 3; k++) {
-        this.p.push(P[i + k * 3], P[i + k * 3 + 1], P[i + k * 3 + 2]);
-        this.n.push(N[i + k * 3], N[i + k * 3 + 1], N[i + k * 3 + 2]);
-        this.c.push(col[0], col[1], col[2]);
-        this.paint.push(a.paint || 0);
-        this.surf.push(a.surf || 0);
-        this.light.push(a.light || 0);
+        B.p.push(P[i + k * 3], P[i + k * 3 + 1], P[i + k * 3 + 2]);
+        B.n.push(N[i + k * 3], N[i + k * 3 + 1], N[i + k * 3 + 2]);
+        B.c.push(col[0], col[1], col[2]);
+        B.paint.push(a.paint || 0);
+        B.surf.push(a.surf || 0);
+        B.light.push(a.light || 0);
       }
     }
   }
@@ -118,15 +130,21 @@ class Mesh {
     this.part(g, { ...opts, smooth: true });
   }
 
+  // the body geometry; see-through glass, if any, rides along as userData.glass
   build() {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
-    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
-    g.setAttribute('paint', new THREE.Float32BufferAttribute(this.paint, 1));
-    g.setAttribute('surf', new THREE.Float32BufferAttribute(this.surf, 1));
-    g.setAttribute('lightKind', new THREE.Float32BufferAttribute(this.light, 1));
-    g.computeBoundingSphere();
+    const geo = (B) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(B.p, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(B.n, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(B.c, 3));
+      g.setAttribute('paint', new THREE.Float32BufferAttribute(B.paint, 1));
+      g.setAttribute('surf', new THREE.Float32BufferAttribute(B.surf, 1));
+      g.setAttribute('lightKind', new THREE.Float32BufferAttribute(B.light, 1));
+      g.computeBoundingSphere();
+      return g;
+    };
+    const g = geo(this.bufs[0]);
+    if (this.bufs[1].p.length) g.userData.glass = geo(this.bufs[1]);
     return g;
   }
 }
@@ -198,6 +216,9 @@ function loft(rings) {
 const DARK = '#141516', GLASS = '#0c1216', CHROME = '#c9cdd1', TRIM = '#1c1d1f', WHITE = '#ffffff';
 const PAINT = { color: WHITE, paint: 1, surf: S.paint };
 const GLASSF = { color: GLASS, surf: S.glass };
+const CLEARF = { color: '#1c2a30', surf: S.glass, clear: 1 };  // tinted, see-through
+const CABIN = '#36322e', SEATS = '#6e665d';  // dark dash and floor, grey-beige fabric seats
+const INSIDE = { color: CABIN, surf: S.plastic };
 const TRIMF = { color: TRIM, surf: S.plastic };
 
 // A car body lofted from its profile: o.top = side-view keys of the shoulder / hood / boot line,
@@ -231,10 +252,13 @@ function carBody(M, def, o) {
   const taper = (t) => (t > 0.55 ? 1 - tum * ((t - 0.55) / 0.45) ** 2 : 1 - 0.05 * ((0.55 - t) / 0.55) ** 2);
   const RN = LOD ? 2 * Math.round((o.ring || 18) / 3) : o.ring || 18;
   const rings = Z.map((z) => ({ z, pts: ring(hw(z), bot(z), top(z), RN, o.ex || 4.2, taper) }));
-  M.add(loft(rings), o.bodyFn || ((f) => (f.ny < -0.55 ? { color: DARK, surf: S.rubber } : PAINT)));
+  const g = o.gh;
+  const bodyFn = o.bodyFn || ((f) => (f.ny < -0.55 ? { color: DARK, surf: S.rubber } : PAINT));
+  // seen through the glass, the top of the body under the glasshouse is the cabin
+  const cabin = (f) => g && !LOD && f.ny > 0.5 && f.cz > g.zD + 0.04 && f.cz < g.zA - 0.04 && Math.abs(f.cx) < 0.66 * hw(f.cz);
+  M.add(loft(rings), (f) => (cabin(f) ? INSIDE : bodyFn(f)));
 
   const shape = { top, hw, bot, h };
-  const g = o.gh;
   if (!g) return shape;
   const roof = spline([
     [g.zD, top(g.zD) - 0.03], [g.zD + (g.zC - g.zD) * 0.5, g.roofY - g.dropR * 0.55 - (g.roofY - top(g.zD)) * 0.35], [g.zC, g.roofY - g.dropR],
@@ -255,6 +279,7 @@ function carBody(M, def, o) {
   // windows (with pillars as bands), the corner strip is the A / rear pillars, the top strip
   // is windscreen, roof and rear glass. Following whole mesh strips keeps the edges clean.
   const sideTris = (grings.length - 1) * GN * 2;
+  const CLEAR = LOD ? GLASSF : CLEARF;
   M.add(loft(grings), (f) => {
     if (f.i >= sideTris) return TRIMF;
     const k = Math.floor(f.i / 2) % GN;
@@ -265,13 +290,35 @@ function carBody(M, def, o) {
     if (Math.abs(sn) < 0.5) {
       if (t < 0.07) return TRIMF; // rubber window seal along the beltline
       for (const [z0, z1, kind] of g.bands || []) if (f.cz > z0 && f.cz < z1) return kind === 'paint' ? PAINT : TRIMF;
-      return GLASSF;
+      return CLEAR;
     }
     if (f.ny > 0.78) return f.cy > g.roofY - 0.14 ? PAINT : TRIMF; // roof, or the cowl at the glass base
-    if (sn < 0.72) return f.nz > 0 ? (g.aPillar === 'trim' ? TRIMF : PAINT) : (g.rearCorner === 'glass' ? GLASSF : PAINT);
-    return GLASSF;
+    if (sn < 0.72) return f.nz > 0 ? (g.aPillar === 'trim' ? TRIMF : PAINT) : (g.rearCorner === 'glass' ? CLEAR : PAINT);
+    return CLEAR;
   });
+  if (def.seat && !LOD) cabinFit(M, def, shape, g);
   return shape;
+}
+
+// Dashboard, steering wheel and seats, seen through the glass (right-hand drive).
+function cabinFit(M, def, sh, g) {
+  const st = def.seat;
+  const belt = sh.top(st.z);
+  const zDash = Math.min(g.zA - 0.12, st.z + 0.78);
+  M.box(sh.hw(zDash) * 1.7, 0.2, 0.42, { y: sh.top(zDash) - 0.04, z: zDash, color: CABIN, surf: S.plastic });
+  const wheel = new THREE.TorusGeometry(0.18, 0.02, 5, 16);
+  M.part(wheel, { x: st.x, y: st.y + 0.42, z: st.z + 0.5, rx: 0.45, color: '#1a1918', surf: S.plastic });
+  M.box(0.05, 0.05, 0.3, { x: st.x, y: st.y + 0.36, z: st.z + 0.64, rx: 0.45, color: '#1a1918', surf: S.plastic });
+  for (const x of [st.x, -st.x]) {
+    // seat back and headrest, reclined like the driver
+    M.box(0.48, 0.62, 0.11, { x, y: st.y + 0.3, z: st.z - 0.17 - Math.sin(st.recline) * 0.3, rx: -st.recline, color: SEATS, surf: S.plastic });
+    M.box(0.26, 0.17, 0.09, { x, y: st.y + 0.7 * Math.cos(st.recline), z: st.z - 0.15 - Math.sin(st.recline) * 0.7, rx: -st.recline, color: SEATS, surf: S.plastic });
+  }
+  // a rear bench where the glasshouse reaches back over it
+  const zr = st.z - 0.95, rt = st.y + 0.5;
+  if (zr > g.zD + 0.3 && rt < g.roofY - 0.3) {
+    M.box(sh.hw(zr) * 1.55, Math.max(0.2, rt - belt + 0.2), 0.12, { y: (belt + rt) / 2 - 0.1, z: zr - 0.15, rx: -0.2, color: SEATS, surf: S.plastic });
+  }
 }
 
 // Rounded lamp lenses at both ends; front = headlights, rear = tail/brake lights.
@@ -471,41 +518,19 @@ function bus(def) {
 }
 
 // Rider for the trishaw: smooth limbs (same proportions as the pedestrians)
-function rider(M, bx) {
-  const skin = '#a8744f', shirt = '#e8e8e2', longyi = '#2c3e66';
-  const limb = (x0, y0, z0, x1, y1, z1, r0, r1, color) => {
-    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0, L = Math.hypot(dx, dy, dz);
-    const g = new THREE.CylinderGeometry(r1, r0, L, 8, 1);
-    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx / L, dy / L, dz / L));
-    const e = new THREE.Euler().setFromQuaternion(q);
-    M.part(g, { x: (x0 + x1) / 2, y: (y0 + y1) / 2, z: (z0 + z1) / 2, rx: e.x, ry: e.y, rz: e.z, color, surf: S.plastic, smooth: true });
-  };
-  M.ell(0.17, 0.27, 0.12, { x: bx, y: 1.3, z: -0.14, rx: 0.25, color: shirt, surf: S.plastic });           // torso
-  M.ell(0.17, 0.15, 0.16, { x: bx, y: 1.0, z: -0.17, color: longyi, surf: S.plastic });                     // hips in longyi
-  limb(bx - 0.09, 0.98, -0.1, bx - 0.09, 0.62, 0.12, 0.08, 0.06, longyi);                                    // thighs to pedals
-  limb(bx + 0.09, 0.98, -0.1, bx + 0.09, 0.78, 0.2, 0.08, 0.06, longyi);
-  limb(bx - 0.09, 0.62, 0.12, bx - 0.09, 0.32, 0.02, 0.05, 0.04, skin);
-  limb(bx + 0.09, 0.78, 0.2, bx + 0.09, 0.5, 0.25, 0.05, 0.04, skin);
-  for (const sd of [-1, 1]) {
-    limb(bx + sd * 0.17, 1.45, -0.08, bx + sd * 0.22, 1.2, 0.15, 0.05, 0.042, shirt);
-    limb(bx + sd * 0.22, 1.2, 0.15, bx + sd * 0.26, 1.1, 0.46, 0.04, 0.035, skin);
-  }
-  M.part(new THREE.CylinderGeometry(0.045, 0.05, 0.1, 8), { x: bx, y: 1.6, z: -0.04, color: skin, surf: S.plastic });
-  M.ell(0.1, 0.125, 0.11, { x: bx, y: 1.74, z: -0.02, color: skin, surf: S.plastic });                       // head
-  M.ell(0.105, 0.07, 0.115, { x: bx, y: 1.8, z: -0.04, color: '#141210', surf: S.plastic });               // hair
-}
-
 function trishaw(def) {
   const M = new Mesh();
   const bx = -0.38; // bicycle line (sidecar on the rider's right)
   const frame = { color: '#2a2b2d', surf: S.plastic };
   const tube = (x, y, z, L, rx, r = 0.022) => M.part(new THREE.CylinderGeometry(r, r, L, 8), { x, y, z, rx, ...frame });
   tube(bx, 0.62, 0.06, 1.05, Math.PI / 2);
-  tube(bx, 0.7, -0.18, 0.62, 0.2);
+  tube(bx, 0.64, -0.2, 0.5, 0.2);
   tube(bx, 0.7, 0.56, 0.75, -0.25);
-  M.bar(0.55, 0.018, { x: bx, y: 1.08, z: 0.5, color: CHROME, surf: S.chrome });
-  M.ell(0.1, 0.04, 0.14, { x: bx, y: 1.02, z: -0.22, color: '#1a1a1a', surf: S.rubber });
-  rider(M, bx);
+  M.bar(0.55, 0.018, { x: bx, y: 1.12, z: 0.46, color: CHROME, surf: S.chrome });
+  M.ell(0.1, 0.04, 0.14, { x: bx, y: 0.92, z: -0.24, color: '#1a1a1a', surf: S.rubber });   // saddle
+  // chainring and pedal cranks (the rider is a person, drawn with the pedestrians)
+  M.part(new THREE.CylinderGeometry(0.1, 0.1, 0.012, 14).rotateZ(Math.PI / 2), { x: bx + 0.05, y: 0.4, z: 0.06, color: '#3a3b3d', surf: S.chrome });
+  M.box(0.2, 0.025, 0.025, { x: bx, y: 0.4, z: 0.06, color: '#2a2b2d', surf: S.plastic });
   // sidecar: painted tub with back-to-back seats and a canopy
   const sc = 0.45;
   M.box(0.66, 0.14, 1.15, { x: sc, y: 0.48, z: -0.05, ...PAINT });

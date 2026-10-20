@@ -14,6 +14,7 @@ import { Sky } from './world/sky.js';
 import { RoadGraph, edgePoint } from './ai/roadgraph.js';
 import { VehicleRenderer } from './vehicles/renderer.js';
 import { HumanRenderer } from './humans/renderer.js';
+import { randomLook } from './humans/human.js';
 import { Vehicle } from './vehicles/vehicle.js';
 import { Traffic } from './ai/traffic.js';
 import { Parked } from './ai/parked.js';
@@ -731,6 +732,12 @@ class Game {
     vr.end();
     hr.begin(this.camera);
     for (const h of this.humans()) hr.add(h);
+    // drivers behind the glass and trishaw riders
+    for (const v of this.vehicles) {
+      if (!v.driver || v.wrecked || !v.def.seat) continue;
+      const look = v.driver === 'player' ? this.player.human : (v.look ||= randomLook(v.def.police ? 'cop' : 'driver'));
+      hr.addRider(v, look);
+    }
     hr.end();
     this.renderer.render(this.scene, this.camera);
   }

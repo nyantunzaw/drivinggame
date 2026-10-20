@@ -6,13 +6,19 @@ import { buildVehicleGeometries, wheelGeometry, VEHICLE_TYPES } from './models.j
 import { blobTexture, glowTexture } from '../textures.js';
 
 const CAP = 48;
-const NEAR = 45; // metres: full-detail bodies and wheels inside this
+export const NEAR = 45; // metres: full-detail bodies, wheels, see-through glass and drivers inside this
 
-function vehicleMaterial(timeUniform, env, pbr) {
+function vehicleMaterial(timeUniform, env, pbr, glass = false) {
   // Physically based on capable devices: paint, glass and chrome pick up the sky.
   const m = pbr
     ? new THREE.MeshStandardMaterial({ vertexColors: true, envMap: env, envMapIntensity: 1, roughness: 0.5, metalness: 0 })
     : new THREE.MeshLambertMaterial({ vertexColors: true });
+  if (glass) {
+    // tinted windows you can see the driver through
+    m.transparent = true;
+    m.opacity = pbr ? 0.5 : 0.58;
+    m.depthWrite = false;
+  }
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = timeUniform;
     shader.vertexShader = shader.vertexShader
@@ -46,7 +52,7 @@ function vehicleMaterial(timeUniform, env, pbr) {
         else if (lk > 3.5 && lk < 4.5) totalEmissiveRadiance += vec3(0.15, 0.3, 1.0) * vLights.z * (1.0 - flash) * 5.0;
         else if (lk > 4.5) totalEmissiveRadiance += vec3(1.0, 0.75, 0.15) * (0.25 + vLights.x * 1.6);`);
   };
-  m.customProgramCacheKey = () => (pbr ? 'vehicle-pbr' : 'vehicle-paint');
+  m.customProgramCacheKey = () => (pbr ? 'vehicle-pbr' : 'vehicle-paint') + (glass ? '-glass' : '');
   return m;
 }
 
@@ -59,6 +65,7 @@ export class VehicleRenderer {
     this.night = 0;
     const mat = vehicleMaterial(this.time, env, this.pbr);
     this.mat = mat;
+    this.glassMat = vehicleMaterial(this.time, env, this.pbr, true);
     this.meshes = {};
     this.far = {};
     for (const [set, geos] of [[this.meshes, buildVehicleGeometries()], [this.far, buildVehicleGeometries(1)]]) for (const [k, g] of Object.entries(geos)) {
@@ -73,7 +80,19 @@ export class VehicleRenderer {
       mesh.frustumCulled = false;
       mesh.castShadow = quality.shadows;
       scene.add(mesh);
-      set[k] = { mesh, lights, n: 0 };
+      // see-through windows: a transparent mesh sharing the body's instances
+      let glass = null;
+      if (g.userData.glass) {
+        const gg = g.userData.glass;
+        gg.setAttribute('iLights', lights);
+        glass = new THREE.InstancedMesh(gg, this.glassMat, CAP);
+        glass.instanceMatrix = mesh.instanceMatrix;
+        glass.instanceColor = mesh.instanceColor;
+        glass.count = 0;
+        glass.frustumCulled = false;
+        scene.add(glass);
+      }
+      set[k] = { mesh, glass, lights, n: 0 };
     }
     this.slots = [...Object.values(this.meshes), ...Object.values(this.far)];
     const wheels = (lod) => {
@@ -129,17 +148,20 @@ export class VehicleRenderer {
     if (on === this.pbr) return;
     this.pbr = on;
     const mat = vehicleMaterial(this.time, this.env, on);
-    for (const s of this.slots) s.mesh.material = mat;
+    const glass = vehicleMaterial(this.time, this.env, on, true);
+    for (const s of this.slots) { s.mesh.material = mat; if (s.glass) s.glass.material = glass; }
     this.wheels.material = mat;
     this.wheelsFar.material = mat;
     this.mat.dispose();
+    this.glassMat.dispose();
     this.mat = mat;
+    this.glassMat = glass;
   }
 
   begin(time, night, daylight = 1) {
     this.time.value = time;
     this.night = night;
-    if (this.pbr) this.mat.envMapIntensity = 0.06 + daylight * 0.94;
+    if (this.pbr) this.mat.envMapIntensity = this.glassMat.envMapIntensity = 0.06 + daylight * 0.94;
     for (const s of this.slots) s.n = 0;
     this.wheels.count = 0;
     this.wheelsFar.count = 0;
@@ -211,6 +233,7 @@ export class VehicleRenderer {
   end() {
     for (const s of this.slots) {
       s.mesh.count = s.n;
+      if (s.glass) s.glass.count = s.n;
       s.mesh.instanceMatrix.needsUpdate = true;
       if (s.mesh.instanceColor) s.mesh.instanceColor.needsUpdate = true;
       s.lights.needsUpdate = true;

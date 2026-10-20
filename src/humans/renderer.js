@@ -8,8 +8,9 @@
 // trousers / robe), 3 skin; 0 keeps the vertex colour (hair, eyes, sandals...).
 import * as THREE from 'three';
 import { blobTexture } from '../textures.js';
+import { NEAR as CAR_NEAR } from '../vehicles/renderer.js';
 
-const CAP = 64;
+const CAP = 96;
 const NEAR = 28;           // metres: full detail (faces) inside this
 const tmp = new THREE.Color();
 const lin = (hex) => { tmp.set(hex); return [tmp.r, tmp.g, tmp.b]; };
@@ -92,6 +93,17 @@ class B {
     g.computeBoundingSphere();
     return g;
   }
+}
+
+// Two-bone reach in the side (y, z) plane from a joint to a target offset (dy, dz), bones
+// a then b. Returns the swing of the first bone (0 hanging down, negative forward) and the
+// bend of the second: knees bend backward, elbows (elbow = true) forward.
+function reach(dy, dz, a, b, elbow) {
+  const d = Math.min(a + b - 1e-3, Math.max(Math.abs(a - b) + 1e-3, Math.hypot(dy, dz)));
+  const th = Math.atan2(-dz, -dy);
+  const al = Math.acos(Math.min(1, (a * a + d * d - b * b) / (2 * a * d)));
+  const bend = Math.PI - Math.acos(Math.max(-1, Math.min(1, (a * a + b * b - d * d) / (2 * a * b))));
+  return [elbow ? th + al : th - al, bend];
 }
 
 // Body proportions (metres, standing on y = 0, facing +z, right hand side at -x)
@@ -298,6 +310,8 @@ export class HumanRenderer {
     this._p = new THREE.Vector3();
     this._s = new THREE.Vector3(1, 1, 1);
     this._one = new THREE.Vector3(1, 1, 1);
+    this._hip = new THREE.Matrix4().makeTranslation(0, -HIP_Y, 0);
+    this._seat = { shoulder: [0, 0], roll: [0.1, 0.1], elbow: [0, 0], hip: [0, 0], knee: [0, 0] };
     this._frustum = new THREE.Frustum();
     this._pv = new THREE.Matrix4();
     this._sphere = new THREE.Sphere(new THREE.Vector3(), 1.3);
@@ -352,26 +366,8 @@ export class HumanRenderer {
     const sc = h.scale || 1;
     this._s.set(sc, sc, sc);
     this._base.compose(this._p, this._q, this._s);
-    this._put(body, this._base, h);
-
-    const pose = h.pose;
     const skirt = SKIRT[h.variant];
-    const shin = skirt ? set.shinBare : set.shinShod;
-    const jm = this._j, lm = this._m;
-    for (let i = 0; i < 2; i++) {
-      const sd = i === 0 ? -1 : 1;   // 0 = right (-x), 1 = left
-      // arm: shoulder swing plus a little outward roll, then the elbow bends forward
-      this._joint(jm, this._base, sd * SH_X, SH_Y, 0, pose.shoulder[i], sd * pose.roll[i]);
-      // a monk's right shoulder is bare
-      this._put(h.variant === 'monk' && i === 0 ? set.upperBare : set.upper, jm, h);
-      this._joint(lm, jm, 0, -UPPER, 0, -pose.elbow[i]);
-      this._put(set.fore, lm, h);
-      // leg: hip swing, then the knee bends back; thighs are hidden inside skirts
-      this._joint(jm, this._base, sd * HIP_X, HIP_Y, 0, pose.hip[i], sd * 0.025);
-      if (!skirt) this._put(set.thigh, jm, h);
-      this._joint(lm, jm, 0, -THIGH, 0, pose.knee[i]);
-      this._put(shin, lm, h);
-    }
+    this._draw(set, body, h.pose, h, skirt, skirt, h.variant === 'monk');
     if (this.shadows.count < CAP) {
       this._q.identity();
       this._p.set(h.x, h.groundY + 0.13, h.z);
@@ -379,6 +375,80 @@ export class HumanRenderer {
       this._m.compose(this._p, this._q, this._s);
       this.shadows.setMatrixAt(this.shadows.count++, this._m);
     }
+  }
+
+  // Body and limbs about this._base
+  _draw(set, body, pose, look, hideThighs, bare, monk) {
+    this._put(body, this._base, look);
+    const shin = bare ? set.shinBare : set.shinShod;
+    const jm = this._j, lm = this._m;
+    for (let i = 0; i < 2; i++) {
+      const sd = i === 0 ? -1 : 1;   // 0 = right (-x), 1 = left
+      // arm: shoulder swing plus a little outward roll, then the elbow bends forward
+      this._joint(jm, this._base, sd * SH_X, SH_Y, 0, pose.shoulder[i], sd * pose.roll[i]);
+      // a monk's right shoulder is bare
+      this._put(monk && i === 0 ? set.upperBare : set.upper, jm, look);
+      this._joint(lm, jm, 0, -UPPER, 0, -pose.elbow[i]);
+      this._put(set.fore, lm, look);
+      // leg: hip swing, then the knee bends back; thighs are hidden inside skirts
+      this._joint(jm, this._base, sd * HIP_X, HIP_Y, 0, pose.hip[i], sd * 0.025);
+      if (!hideThighs) this._put(set.thigh, jm, look);
+      this._joint(lm, jm, 0, -THIGH, 0, pose.knee[i]);
+      this._put(shin, lm, look);
+    }
+  }
+
+  // A driver behind the wheel, or a trishaw rider pedalling: hips on the vehicle's seat,
+  // hands and feet reaching for the wheel / handlebars and pedals.
+  addRider(v, look) {
+    const def = v.def, st = def.seat;
+    if (!st || !look) return;
+    let far = false;
+    if (this._cam) {
+      this._sphere.center.set(v.x, v.y + 1, v.z);
+      if (!this._frustum.intersectsSphere(this._sphere)) return;
+      const c = this._cam.position;
+      const d2 = (v.x - c.x) ** 2 + (v.z - c.z) ** 2;
+      if (!def.pedal && d2 > CAR_NEAR * CAR_NEAR) return; // distant cars have opaque glass
+      far = d2 > NEAR * NEAR;
+    }
+    const set = this.sets[far ? 1 : 0];
+    const body = set.bodies[look.variant === 'cop' ? 'cop' : 'pants'];
+    if (body.n >= CAP || set.fore.n + 2 > CAP * 2) return;
+    const sc = look.scale || 1, lean = -st.recline;
+    this._e.set(v.pitch, v.heading, v.roll, 'YXZ');
+    this._q.setFromEuler(this._e);
+    this._p.set(v.x, v.y + v.bob, v.z);
+    this._m.compose(this._p, this._q, this._one);
+    this._e.set(lean, 0, 0, 'XYZ');
+    this._q.setFromEuler(this._e);
+    this._p.set(st.x, st.y, st.z);
+    this._s.set(sc, sc, sc);
+    this._l.compose(this._p, this._q, this._s);
+    this._base.multiplyMatrices(this._m, this._l).multiply(this._hip);
+
+    const P = this._seat;
+    const shY = (SH_Y - HIP_Y) * sc;
+    const sy = shY * Math.cos(lean), sz = shY * Math.sin(lean);   // shoulders from the hips
+    const turn = Math.max(-1.1, Math.min(1.1, (v.steerAngle || 0) * 3));
+    for (let i = 0; i < 2; i++) {
+      let hy, hz, fy, fz;
+      if (st.bars) {
+        hy = st.bars[0] - st.y; hz = st.bars[1] - st.z;
+        const a = v.wheelSpin * 0.45 + i * Math.PI;
+        fy = st.crank[0] - st.y + Math.cos(a) * st.crank[2];
+        fz = st.crank[1] - st.z + Math.sin(a) * st.crank[2];
+      } else {
+        // hands at ten to two on the rim, turning with the steering
+        hy = 0.42 + 0.18 * Math.sin(0.52 + (i === 0 ? turn : -turn)); hz = 0.47;
+        [fy, fz] = st.feet || [-0.3, 0.72];
+      }
+      const [sh, el] = reach(hy - sy, hz - sz, UPPER * sc, (FORE + 0.06) * sc, true);
+      P.shoulder[i] = sh - lean; P.elbow[i] = el;
+      const [hp, kn] = reach(fy, fz, THIGH * sc, SHIN * sc, false);
+      P.hip[i] = hp - lean; P.knee[i] = kn;
+    }
+    this._draw(set, body, P, look, false, SKIRT[look.variant], false);
   }
 
   end() {

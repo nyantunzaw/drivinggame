@@ -55,7 +55,9 @@ Gamepads are supported too.
   a canopy over the bed, YBS city buses and, on the downtown side streets, pedal-powered
   sai-ka trishaws. Cars line the kerbs, two wheels up on the pavement on the narrow streets.
   Bodies are smooth lofted shells (rounded noses and tails, tumblehome, wheel arches, a
-  glasshouse with proper pillars) with reflective paint, glass and chrome, and alloy wheels.
+  glasshouse with proper pillars) with reflective paint, chrome and alloy wheels, and tinted
+  see-through windows: you can see the driver at the wheel, the seats and the dashboard inside.
+  Trishaw riders pedal as they go.
 - **Buildings** use a painted facade atlas: colonial stucco, 1960s–80s apartment blocks with
   balconies, laundry and AC units, glass towers, brick, and Chinatown shophouses. Ground floors
   facing a street are shops (signboards, half-open shutters, goods inside, lit at night);
